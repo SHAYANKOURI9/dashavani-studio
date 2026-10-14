@@ -1,0 +1,81 @@
+// Every part of the studio needs an account. A sign-in that runs out mid-work goes to the sign-in page and back.
+// The Account panel: your email, your own API keys (the owner's live in .env.local), and for the owner, new accounts to approve.
+import { t } from "./i18n.js";
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const toLogin = () => location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
+const post = (url, data) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+
+// Runs a request; if the sign-in has run out, goes to sign in and comes back here.
+export async function withSignIn(run) {
+  const res = await run();
+  if (res.status === 401) toLogin();
+  return res;
+}
+
+const KEY_LABELS = { GEMINI_API_KEY: "Gemini API key", ELEVENLABS_API_KEY: "ElevenLabs API key", HEYGEN_API_KEY: "HeyGen API key", HEYGEN_AVATAR_ID: "HeyGen avatar ID" };
+
+async function openAccount() {
+  const me = await fetch("/api/me").then((r) => (r.ok ? r.json() : null));
+  if (!me) return toLogin();
+  const owner = me.role === "owner";
+  const d = document.createElement("dialog");
+  d.className = "signin account";
+  d.setAttribute("aria-labelledby", "ac-h");
+  d.innerHTML = `<form novalidate>
+    <h2 id="ac-h">${esc(t("Your account"))}</h2>
+    <p>${esc(me.email)} · ${esc(t(owner ? "Owner" : "Editor"))}</p>
+    ${owner ? `<p>${esc(t("Your videos use the API keys in .env.local. Other accounts use their own."))}</p>` : `
+      <p>${esc(t("Videos you make are paid with your own keys. Saved keys are encrypted and never shown again; leave a box empty to keep what is saved."))}</p>
+      ${me.keyNames.map((k) => `<label for="ac-${k}">${esc(t(KEY_LABELS[k]))} <span class="muted">${esc(t(me.keys.includes(k) ? "(saved)" : "(not set)"))}</span></label>
+        <div class="field"><input id="ac-${k}" name="${k}" type="password" autocomplete="off" spellcheck="false" style="padding-right:16px;margin-bottom:12px"></div>`).join("")}`}
+    ${owner ? `<h3>${esc(t("Accounts"))}</h3><ul class="ac-users" aria-live="polite"><li>${esc(t("Loading…"))}</li></ul>` : ""}
+    <p class="error" id="ac-err" role="alert"></p>
+    <div class="row"><button type="button" class="quiet" data-out>${esc(t("Sign out"))}</button><button type="button" class="quiet" data-close>${esc(t("Close"))}</button>${owner ? "" : `<button type="submit" class="primary">${esc(t("Save keys"))}</button>`}</div>
+  </form>`;
+  document.body.append(d);
+  const err = d.querySelector("#ac-err");
+  const showUsers = (list) => {
+    const others = list.filter((u) => u.role !== "owner");
+    d.querySelector(".ac-users").innerHTML = others.length ? others.map((u) => `<li><span>${esc(u.email)} <span class="muted">${esc(t(u.status === "pending" ? "waiting for approval" : "approved"))}</span></span>
+      <span>${u.status === "pending" ? `<button type="button" data-id="${esc(u.id)}" data-status="approved">${esc(t("Approve"))}</button>` : ""}<button type="button" class="quiet" data-id="${esc(u.id)}" data-status="removed">${esc(t("Remove"))}</button></span></li>`).join("")
+      : `<li class="muted">${esc(t("Nobody else has signed up yet."))}</li>`;
+  };
+  if (owner) {
+    fetch("/api/users").then((r) => r.json()).then(showUsers);
+    d.querySelector(".ac-users").addEventListener("click", async (e) => {
+      const b = e.target.closest("button[data-id]");
+      if (!b) return;
+      if (b.dataset.status === "removed" && !confirm(t("Remove this account? They will not be able to sign in."))) return;
+      const res = await post(`/api/users/${b.dataset.id}/status`, { status: b.dataset.status });
+      const data = await res.json();
+      res.ok ? showUsers(data) : (err.textContent = t(data.error));
+    });
+  }
+  d.querySelector("[data-close]").addEventListener("click", () => d.close());
+  d.querySelector("[data-out]").addEventListener("click", async () => { await fetch("/api/logout", { method: "POST" }); location.assign("/login"); });
+  d.querySelector("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const keys = Object.fromEntries(me.keyNames.map((k) => [k, d.querySelector(`#ac-${k}`).value]).filter(([, v]) => v.trim()));
+    if (!Object.keys(keys).length) { err.textContent = t("Paste at least one key to save."); return; }
+    const res = await post("/api/me/keys", keys);
+    if (!res.ok) { err.textContent = t((await res.json()).error); return; }
+    d.close();
+    openAccount(); // shows the keys as saved
+  });
+  d.addEventListener("close", () => d.remove());
+  d.showModal();
+}
+
+// Top bar: Account once signed in; the footer's Sign out too.
+fetch("/api/stats").then((r) => r.json()).then(({ signedIn }) => {
+  const inBtn = document.getElementById("nav-signin"), acBtn = document.getElementById("nav-account"), outBtn = document.getElementById("signout");
+  if (inBtn) { inBtn.hidden = signedIn; inBtn.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`; }
+  if (acBtn) acBtn.hidden = !signedIn;
+  if (outBtn) outBtn.hidden = !signedIn;
+}).catch(() => {});
+document.getElementById("nav-account")?.addEventListener("click", openAccount);
+document.getElementById("signout")?.addEventListener("click", async () => {
+  await fetch("/api/logout", { method: "POST" });
+  location.assign("/login");
+});

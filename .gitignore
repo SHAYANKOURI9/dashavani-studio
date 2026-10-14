@@ -1,0 +1,12 @@
+node_modules/
+.next/
+data/
+*.db
+*.db-journal
+.env
+.env.local
+.DS_Store
+renders/
+.hyperframes/
+.thumbnails/
+snapshots/
