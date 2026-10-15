@@ -117,17 +117,24 @@ folder and `npm start`. Sign-ins keep working because the zip includes `data/ses
 
 ### HyperFrames Studio (hand editing, on the studio's own computer)
 
-**Edit in Studio** opens the video's HyperFrames project in HyperFrames Studio for
-frame-by-frame editing (layout, timing, animation). It is installed with `npm install`; nothing else to set up.
+For frame-by-frame editing (layout, timing, animation), open the video's project in HyperFrames Studio. It is
+installed with `npm install`, free (open source, Apache-2.0) and needs no account.
 
-- **Who sees the button:** the owner, using the studio at `localhost` on the computer it runs on. Anyone who clones
-  this repo and runs it is the owner of their own copy, so it works for them there.
+1. On a draft, press **Open in HyperFrames Studio**. Or open it yourself:
+   `npx hyperframes preview data/projects/<story id>` (then http://localhost:3002).
+2. Edit and save in Studio.
+3. Back in the studio, press **Render Studio edits**. It makes a new draft from your edited page, listed under
+   **Versions** as "Studio edits". (On a finished video, **Render Studio edits** makes the next final.)
+
+**Your edits are kept with their version.** Every draft keeps a copy of the page it was rendered from. Asking for a
+change in words, adjusting the draft or going back to the voice or script starts again from the script, not from your
+Studio edits; your edits stay in the version you rendered them in, and **Use this version** on it brings them back.
+
+- **Who sees the Studio buttons:** the owner, using the studio at `localhost` on the computer it runs on. Anyone who
+  clones this repo and runs it is the owner of their own copy, so it works for them there.
 - **Why not online:** Studio is a local editing tool. It writes the project's files directly and has no sign-in of its
   own, so it runs on that computer only (port 3002) and is never reachable through `npm run online`. People using the
   studio online adjust drafts in the app instead (above), where every change goes through their sign-in.
-- **After editing in Studio,** come back and press **Approve** (or **Re-render** on a final): the next render uses
-  your edits. Going back to the voice or script, changing subtitles or adjusting the draft remakes the page, which
-  replaces Studio edits.
 
 Add `?still` to the URL to turn off 3D motion, for slow machines or screenshots.
 

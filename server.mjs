@@ -83,12 +83,23 @@ const STEPS = {
     await P.backTranslate(job).catch((e) => console.error(`[${job.id}] English check:`, e.message)); // a check, never a blocker
   },
   voice: async (job) => { await P.voice(job); if (job.voiceChars) credits.at = 0; },
-  compose: P.compose,
+  // Builds the page from the script; or, for "Use this version", puts back the exact page that version was rendered
+  // from (Studio edits included).
+  compose: async (job) => {
+    const saved = job.restorePage && path.join(P.projectDir(job), "versions", `v${job.restorePage}.html`);
+    delete job.restorePage;
+    if (saved && fs.existsSync(saved)) fs.copyFileSync(saved, path.join(P.projectDir(job), "index.html"));
+    else await P.compose(job);
+  },
   edit: async (job) => { await P.applyChange(job, job.changeRequest); },
   fixlang: P.fixLanguage,
   draft: async (job) => {
     // Every draft is kept as a version, with what changed and the story's cost so far.
     const n = (job.versions?.length ?? 0) + 1;
+    // The page this draft is rendered from, kept with its version: Studio edits survive later changes to the page.
+    const versions = path.join(P.projectDir(job), "versions");
+    fs.mkdirSync(versions, { recursive: true });
+    fs.copyFileSync(path.join(P.projectDir(job), "index.html"), path.join(versions, `v${n}.html`));
     const story = await P.render(job, `draft-v${n}.story`, "draft");
     await P.critic(job, story).catch((e) => { job.critic = { summary: `Quality check could not run: ${e.message}`, issues: [] }; });
     job.draft = await finish(job, story, `draft-v${n}.mp4`);
@@ -247,8 +258,14 @@ const ACTIONS = {
     const v = job.versions?.find((x) => x.n === body.n);
     if (!v) return "No such version";
     if (!["draft_review", "done"].includes(job.status)) return "Versions can be restored once there is a draft";
-    Object.assign(job, { script: v.script, presenter: v.presenter, subLangs: v.subLangs, burn: v.burn, changeNote: `Back to version ${v.n}` });
+    Object.assign(job, { script: v.script, presenter: v.presenter, subLangs: v.subLangs, burn: v.burn, changeNote: `Back to version ${v.n}`, restorePage: v.n });
     run(job, ["voice", "compose", "draft"], "draft_review");
+  },
+  // After editing the page in HyperFrames Studio: a new draft from it, listed as its own version.
+  "studio-render": (job) => {
+    if (job.status !== "draft_review") return "Studio edits are rendered while the draft is waiting for review";
+    job.changeNote = "Studio edits";
+    run(job, ["draft"], "draft_review");
   },
   "redo-draft": (job) => job.status !== "draft_review" ? "No draft to redo" : run(job, ["draft"], "draft_review"),
   // Voice-only stories skip HeyGen entirely.

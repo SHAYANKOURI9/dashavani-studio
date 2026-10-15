@@ -188,6 +188,37 @@ test("at draft review: on-screen text and cutaways change without a new voice", 
   assert.deepEqual(c.body.pending.steps, ["compose", "draft"]);
 });
 
+test("Studio edits: rendered as their own version from the edited page, kept with it, and brought back by Use this version", async () => {
+  // Only the pages are checked here; the render itself needs HyperFrames' browser (checked by hand on a real draft).
+  const id = seedStory(ids.owner), f = path.join(DATA, "jobs", `${id}.json`), dir = path.join(DATA, "projects", id);
+  const job = (patch) => fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, "utf8")), ...patch }));
+  const page = () => fs.readFileSync(path.join(dir, "index.html"), "utf8");
+  const settle = async () => { for (let i = 0; i < 600; i++) { const j = (await owner.req("GET", `/api/jobs/${id}`)).body; if (!["queued", "voice", "compose", "draft"].includes(j.status)) return j; await new Promise((r) => setTimeout(r, 100)); } };
+  const script = { template: "lead", category: "NEWS", headline: "H", standfirst: "", dateline_city: "", narration: "Spoken words.", ticker: [] };
+  job({ status: "draft_review", draft: "draft-v1.mp4", seconds: 4, script, versions: [{ n: 1, at: new Date().toISOString(), draft: "draft-v1.mp4", script, note: "First draft from the approved script", spent: 0, voice: "reused" }] });
+  fs.writeFileSync(path.join(dir, "index.html"), "<!-- edited in Studio -->");
+  assert.equal((await a.req("POST", `/api/jobs/${id}/studio-render`, {})).status, 404, "another account can't");
+  const r = await owner.req("POST", `/api/jobs/${id}/studio-render`, {});
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.pending.steps, r.body.changeNote], [["draft"], "Studio edits"], "only a render: the edited page is not rebuilt");
+  await settle();
+  assert.equal(fs.readFileSync(path.join(dir, "versions", "v2.html"), "utf8"), "<!-- edited in Studio -->", "version 2 keeps the page it was rendered from");
+  // A later change rebuilds the page from the script; version 2's Studio edits stay with it and come back.
+  fs.writeFileSync(path.join(dir, "index.html"), "<!-- rebuilt from the script -->");
+  job({ status: "draft_review", versions: [...JSON.parse(fs.readFileSync(f, "utf8")).versions, { n: 2, at: new Date().toISOString(), draft: "draft-v2.mp4", script, note: "Studio edits", spent: 0, voice: "reused" }] });
+  const back = await owner.req("POST", `/api/jobs/${id}/restore`, { n: 2 });
+  assert.equal(back.status, 200);
+  assert.deepEqual(back.body.pending.steps, ["voice", "compose", "draft"]);
+  await settle();
+  assert.equal(page(), "<!-- edited in Studio -->", "Use this version brings the Studio edits back");
+  job({ status: "draft_review" });
+  fs.rmSync(path.join(dir, "versions", "v2.html"));
+  fs.writeFileSync(path.join(dir, "index.html"), "<!-- something else -->");
+  await owner.req("POST", `/api/jobs/${id}/restore`, { n: 2 });
+  await settle();
+  assert.notEqual(page(), "<!-- something else -->", "a version from before pages were kept is rebuilt from its script");
+});
+
 test("an unexpected error says so plainly, without file paths or tool output", async () => {
   const r = await a.req("GET", `/media/${ids.storyA}/download/final-v1.mp4?q=720`); // the "video" is not a video: ffmpeg fails
   assert.equal(r.status, 500);
