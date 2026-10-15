@@ -137,6 +137,11 @@ data/               created at runtime: jobs, per-video projects, renders, avata
 tasks/              plan and task list
 ```
 
+**Making changes.** `main` always works and is never committed to directly. Each change gets its own short-lived
+branch named for what it does (`feature/…`, `fix/…`, `docs/…`, `ci/…`), goes to GitHub as a pull request, and is
+merged only once the **Tests** check (`.github/workflows/test.yml`: `npm test` and `npm run build`) passes. The branch
+is deleted after the merge.
+
 Tests: `npm test`. Add shadcn components from `web/` with `npx shadcn@latest add <name>`; they land in `web/src/components/ui`, which the `@/components/ui/...` imports rely on.
 
 ## What else the app does
