@@ -434,7 +434,7 @@ function adjustHtml(job) {
   const media = (job.photos ?? []).filter((p) => p.file !== framed), off = new Set(job.cutawayOff ?? []);
   return `<form id="adjust" class="change" lang="${job.lang}">
     <h3>${t("Adjust the draft")} <span class="opt">${t("no new voice: only the draft is made again")}</span></h3>
-    ${canStudio() ? `<p class="muted">${t("Edits made to this draft in Studio will be replaced.")}</p>` : ""}
+    ${canStudio() ? `<p class="muted">${t("This rebuilds the page: Studio edits stay in the version you rendered them in.")}</p>` : ""}
     <label for="aj-category">${t("Category")}</label><input id="aj-category" value="${esc(s.category)}" required>
     <label for="aj-headline">${t("Headline")}</label><input id="aj-headline" value="${esc(s.headline)}" required>
     <label for="aj-standfirst">${t("Standfirst")}</label><textarea id="aj-standfirst" rows="2">${esc(s.standfirst)}</textarea>
@@ -650,15 +650,14 @@ function render(job) {
     <video controls preload="none" poster="/media/${job.id}/poster.jpg?t=${encodeURIComponent(job.updatedAt)}" src="/media/${job.id}/${job.draft}?t=${encodeURIComponent(job.updatedAt)}">${tracks(job)}</video>
     ${job.status === "draft_review" ? `<div class="row">
       <button class="primary" data-act="approve-draft">${t("Approve and make the final video")}</button>
-      ${canStudio() ? `<button class="quiet" data-studio>${t("Edit in Studio")}</button>` : ""}
-      <button class="quiet" data-act="redo-draft">${t("Re-render draft")}</button>
+      ${canStudio() ? `<button class="quiet" data-studio>${t("Open in HyperFrames Studio")}</button><button class="quiet" data-act="studio-render">${t("Render Studio edits")}</button>` : `<button class="quiet" data-act="redo-draft">${t("Re-render draft")}</button>`}
       <button class="quiet" data-act="back" data-to="voice_review">${t("Back to voice")}</button>
-      <button class="quiet" data-act="back" data-to="script_review" data-confirm="${esc(t("Going back to the script means the voice and draft are made again when you re-approve. Edits made to this draft in Studio will be replaced."))}">${t("Back to script")}</button></div>` : ""}`;
+      <button class="quiet" data-act="back" data-to="script_review" data-confirm="${esc(t("Going back to the script means the voice and draft are made again when you re-approve. Studio edits stay in the version you rendered them in; Use this version brings them back."))}">${t("Back to script")}</button></div>` : ""}`;
 
   if (job.finals?.length && job.status !== "draft_review") body += `
     <h3>${t("Final video")}</h3>
     <video controls preload="none" poster="/media/${job.id}/poster.jpg?t=${encodeURIComponent(job.updatedAt)}" src="/media/${job.id}/${job.finals.at(-1)}">${tracks(job)}</video>
-    ${job.status === "done" ? `<div class="row">${canStudio() ? `<button class="quiet" data-studio>${t("Edit in Studio")}</button>` : ""}<button data-act="rerender">${t("Re-render after edits")}</button><button class="quiet" data-act="back" data-to="draft_review">${t("Back to draft")}</button></div>
+    ${job.status === "done" ? `<div class="row">${canStudio() ? `<button class="quiet" data-studio>${t("Open in HyperFrames Studio")}</button>` : ""}<button data-act="rerender">${canStudio() ? t("Render Studio edits") : t("Re-render")}</button><button class="quiet" data-act="back" data-to="draft_review">${t("Back to draft")}</button></div>
       ${me?.role === "owner" ? `<p class="muted" style="margin-top:10px">${job.onIntro !== false ? t("Shown on the public intro (watch only; nobody can download or edit it).") : t("Hidden from the intro: only you can see this video.")} <button type="button" class="quiet" data-act="intro" data-on="${job.onIntro === false}">${job.onIntro !== false ? t("Hide from the intro") : t("Show on the intro")}</button></p>` : ""}` : ""}
     <p class="muted" style="margin-top:14px">${t("Versions: {list} · {thumbnail}", { list: job.finals.map((f) => `<a href="/media/${job.id}/${f}" download>${f.replace(".mp4", "").replace("final-", "")}</a>`).join(", "), thumbnail: `<a href="/media/${job.id}/thumbnail.jpg">${t("Thumbnail (JPG)")}</a>` })}</p>
     ${job.status === "done" ? downloadHtml(job) + `<form id="subs-form" class="publish"><h3>${t("Subtitles")}</h3>${subtitlePicker(job)}
@@ -801,7 +800,7 @@ $("#job").addEventListener("click", async (e) => {
       // Popup blockers (Safari) return null from window.open; fall back to this tab.
       if (tab) tab.location = url; else location.href = url;
     } catch (err) { tab?.close(); say(err); }
-    btn.disabled = false; btn.textContent = t("Edit in Studio");
+    btn.disabled = false; btn.textContent = t("Open in HyperFrames Studio");
   }
 });
 
