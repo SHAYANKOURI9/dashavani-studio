@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { z } from "zod";
 import { lintCss } from "./designer.mjs";
-import { unsupportedNumbers, backTargets, Script, fillVariables, templateFor, savePhoto, cutawayMarkup, slateMarkup, projectDir, toWords, captionLines, captionMarkup, addCost, monthSpend, spendByAccount, voiceFor, useKeys, sentences, translatedLines, subtitlePlan, cueFiles, gemini, reviewReasons, cutawaySchedule, PublishPack, downloadArgs } from "./pipeline.mjs";
+import { unsupportedNumbers, backTargets, Script, fillVariables, templateFor, savePhoto, cutawayMarkup, slateMarkup, projectDir, toWords, captionLines, captionMarkup, addCost, monthSpend, spendByAccount, voiceFor, useKeys, partialScript, sentences, translatedLines, subtitlePlan, cueFiles, gemini, reviewReasons, cutawaySchedule, PublishPack, downloadArgs } from "./pipeline.mjs";
 
 test("fills variables in both single-quoted and Studio-saved templates", () => {
   const single = `<html data-composition-variables='[{"id":"headline","default":"Old"}]'>`;
@@ -347,4 +347,28 @@ test("voices come from the server's .env.local for every account", () => {
     for (const owner of [true, false]) assert.equal(useKeys.run({ owner }, () => voiceFor("te")), "OwnerVoice0000000000");
     assert.equal(voiceFor("hi"), "nPczCjzI2devNBz1zQrb", "a language without one gets the built-in voice");
   } finally { delete process.env.ELEVENLABS_VOICE_TE; }
+});
+
+test("live script: the headline and narration read from a reply that is still arriving", () => {
+  assert.deepEqual(partialScript('{"template":"lead","headline":"Rain al'), { headline: "Rain al", narration: "" });
+  assert.deepEqual(partialScript('{"headline":"A \\"big\\" day","narration":"First line.\\nSecond'), { headline: 'A "big" day', narration: "First line.\nSecond" });
+  assert.equal(partialScript('{"narration":"ends on a half escape \\').narration, "ends on a half escape ");
+  assert.equal(partialScript('{"narration":"half a unicode \\u0c1').narration, "half a unicode ");
+  assert.equal(partialScript('{"narration":"a real backslash \\\\').narration, "a real backslash \\");
+  assert.equal(partialScript('{"narration":"తెలుగు వార్త').narration, "తెలుగు వార్త");
+  assert.deepEqual(partialScript(""), { headline: "", narration: "" });
+});
+
+test("gemini streams: pieces reach onText as they arrive, and the whole reply is still checked", async () => {
+  const real = globalThis.fetch, seen = [], urls = [];
+  process.env.GEMINI_API_KEY = "test";
+  const sse = ['{"lines":["he', 'llo"]}'].map((text, i) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }], ...(i === 1 && { usageMetadata: { totalTokenCount: 7 } }) })}\r\n\r\n`);
+  globalThis.fetch = async (url) => { urls.push(url); return new Response(new ReadableStream({ start(c) { for (const s of sse) c.enqueue(new TextEncoder().encode(s)); c.close(); } }), { status: 200 }); };
+  try {
+    const job = {};
+    assert.deepEqual(await gemini(job, "sys", "hi", z.object({ lines: z.array(z.string()) }), "test", (t) => seen.push(t)), { lines: ["hello"] });
+    assert.deepEqual(seen, ['{"lines":["he', '{"lines":["hello"]}']);
+    assert.match(urls[0], /:streamGenerateContent\?alt=sse$/);
+    assert.equal(job.cost.script.units, 7, "the cost comes from the last piece");
+  } finally { globalThis.fetch = real; }
 });

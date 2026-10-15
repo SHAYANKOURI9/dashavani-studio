@@ -360,7 +360,7 @@ async function show(id) {
   $("#stage-line").lang = job.lang;
   $("#stage-state").textContent = job.ahead ? (job.ahead === 1 ? t("In the queue: 1 story ahead of yours") : t("In the queue: {n} stories ahead of yours", { n: job.ahead })) : SAY[job.status] ?? job.status;
   listJobs(id);
-  if (BUSY.has(job.status)) timer = setTimeout(() => show(id), 2500);
+  if (BUSY.has(job.status)) timer = setTimeout(() => show(id), job.status === "script" ? 600 : 2500); // faster while the script is being written
 }
 
 // The rail is built once and then updated in place, so its transitions play instead of restarting on every poll.
@@ -548,6 +548,8 @@ function render(job) {
   const backTo = job.back?.length ? RAIL.find((r) => r[2] === job.back.at(-1))?.[0].toLowerCase() : undefined;
   updateRail(job);
   let body = "";
+  // The script as Gemini writes it, before it is checked; the review form replaces it once it's done.
+  if (job.writing?.narration || job.writing?.headline) body += `<div class="live-script" lang="${job.lang}" aria-live="polite"><h3>${esc(job.writing.headline)}</h3><p>${esc(job.writing.narration)}<span class="caret" aria-hidden="true"></span></p></div>`;
   if (job.status === "error") body += `<div class="err">${esc(t(job.error))}</div><div class="row"><button data-act="retry">${t("Retry this step")}</button>${backTo ? `<button class="quiet" data-act="back">${t("Back to {step}", { step: backTo })}</button>` : ""}</div>`;
   if (job.warnings?.length) body += `<div class="warn"><strong>${t("Check before approving.")}</strong> ${job.warnings.map((w) => esc(t(w))).join(". ")}.</div>`;
   const fmt = (f) => (f === "vertical" ? t("Shorts & Reels") : t("Landscape"));
