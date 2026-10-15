@@ -46,7 +46,7 @@ function seedBulletin(createdBy) {
 }
 
 before(async () => {
-  server = spawn(process.execPath, ["server.mjs", "--mock"], { env: { ...process.env, DATA_DIR: DATA, PORT: String(PORT), SMTP_HOST: "" }, stdio: ["ignore", "pipe", "pipe"] });
+  server = spawn(process.execPath, ["server.mjs", "--mock"], { env: { ...process.env, DATA_DIR: DATA, PORT: String(PORT), SMTP_HOST: "", MONTHLY_CAP_INR: "100" }, stdio: ["ignore", "pipe", "pipe"] });
   server.stdout.on("data", (d) => (out += d));
   server.stderr.on("data", (d) => (out += d));
   await new Promise((ok, no) => { const t = setInterval(() => { if (out.includes("Dashavani Studio on")) { clearInterval(t); ok(); } }, 50); setTimeout(() => no(new Error(`server did not start:\n${out}`)), 15000); });
@@ -160,6 +160,17 @@ test("an editor files at most 20 stories a day; another account is not held up",
   assert.equal(r.status, 429);
   assert.match(r.body.error, /20 stories a day/);
   assert.equal((await a.req("POST", "/api/jobs", story)).status, 201);
+});
+
+test("the owner's monthly cap counts only the owner's own spending", async () => {
+  const story = { input: "The state government announced a new irrigation scheme for farmers today.", lang: "en" };
+  const spend = (createdBy, inr) => { const id = seedStory(createdBy), f = path.join(DATA, "jobs", `${id}.json`); fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, "utf8")), cost: { script: { inr }, voice: { inr: 0 }, presenter: { inr: 0 } } })); };
+  spend(ids.a, 500);
+  assert.equal((await owner.req("POST", "/api/jobs", story)).status, 201, "editors pay with their own keys: their ₹500 doesn't count");
+  spend(ids.owner, 100);
+  const r = await owner.req("POST", "/api/jobs", story);
+  assert.equal(r.status, 429);
+  assert.match(r.body.error, /₹100/);
 });
 
 test("signed-in actions are limited to 120 a minute per account", async () => {

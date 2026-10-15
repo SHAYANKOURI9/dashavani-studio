@@ -105,3 +105,18 @@ test("caps: 20 stories a day for an editor (by India's date), and the owner's mo
   assert.match(overCap([], owner, { daily: 20, monthCap: 500, spent: 500 }, now), /₹500/);
   assert.equal(overCap(day(50, "2026-10-15T01:00:00Z").map((j) => ({ ...j, createdBy: "o" })), owner, { daily: 20, monthCap: 500, spent: 10 }, now), null, "the owner has no daily limit");
 });
+
+test("the render queue runs one at a time, in order, and says how many are ahead", async () => {
+  const { serialQueue } = await import("./queue.mjs");
+  const q = serialQueue(), ran = [], gates = {};
+  const work = (id) => () => new Promise((r) => { ran.push(id); gates[id] = r; });
+  q.add("a", work("a")); q.add("b", work("b")); q.add("c", async () => { ran.push("c"); throw new Error("boom"); }); q.add("d", work("d"));
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(ran, ["a"], "only one runs");
+  assert.deepEqual(["a", "b", "c", "d", "x"].map(q.ahead), [0, 1, 2, 3, -1]);
+  gates.a(); await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual([q.ahead("b"), q.ahead("d")], [0, 2]);
+  gates.b(); await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(ran, ["a", "b", "c", "d"], "a failed job doesn't stop the ones after it");
+  assert.equal(q.ahead("d"), 0);
+});

@@ -14,12 +14,14 @@ export async function withSignIn(run) {
 }
 
 const langName = (code) => new Intl.DisplayNames(["en"], { type: "language" }).of(code);
+// "(saved)" with a button that removes it, or "(not set)".
+const savedMark = (me) => (k) => me.keys.includes(k) ? `<span class="muted">${esc(t("(saved)"))}</span> <button type="button" class="quiet" data-clear="${k}">${esc(t("Remove"))}</button>` : `<span class="muted">${esc(t("(not set)"))}</span>`;
 const KEY_LABELS = { GEMINI_API_KEY: "Gemini API key", ELEVENLABS_API_KEY: "ElevenLabs API key", HEYGEN_API_KEY: "HeyGen API key", HEYGEN_AVATAR_ID: "HeyGen avatar ID" };
 
 async function openAccount() {
   const me = await fetch("/api/me").then((r) => (r.ok ? r.json() : null));
   if (!me) return toLogin();
-  const owner = me.role === "owner";
+  const owner = me.role === "owner", saved = savedMark(me);
   const d = document.createElement("dialog");
   d.className = "signin account";
   d.setAttribute("aria-labelledby", "ac-h");
@@ -28,11 +30,11 @@ async function openAccount() {
     <p>${esc(me.email)} · ${esc(t(owner ? "Owner" : "Editor"))}</p>
     ${owner ? `<p>${esc(t("Your videos use the API keys in .env.local. Other accounts use their own."))}</p>` : `
       <p>${esc(t("Videos you make are paid with your own keys. Saved keys are encrypted and never shown again; leave a box empty to keep what is saved."))}</p>
-      ${me.keyNames.map((k) => `<label for="ac-${k}">${esc(t(KEY_LABELS[k]))} <span class="muted">${esc(t(me.keys.includes(k) ? "(saved)" : "(not set)"))}</span></label>
+      ${me.keyNames.map((k) => `<label for="ac-${k}">${esc(t(KEY_LABELS[k]))} ${saved(k)}</label>
         <div class="field"><input id="ac-${k}" name="${k}" type="password" autocomplete="off" spellcheck="false" style="padding-right:16px;margin-bottom:12px"></div>`).join("")}
       <details><summary>${esc(t("Voices (optional)"))}</summary>
         <p class="muted">${esc(t("A voice ID from your ElevenLabs library for each language. Without one, a built-in voice is used."))}</p>
-        ${me.voiceNames.map((k) => `<label for="ac-${k}">${esc(langName(k.slice(-2).toLowerCase()))} <span class="muted">${esc(t(me.keys.includes(k) ? "(saved)" : "(not set)"))}</span></label>
+        ${me.voiceNames.map((k) => `<label for="ac-${k}">${esc(langName(k.slice(-2).toLowerCase()))} ${saved(k)}</label>
         <div class="field"><input id="ac-${k}" name="${k}" autocomplete="off" spellcheck="false" style="padding-right:16px;margin-bottom:12px"></div>`).join("")}
       </details>`}
     <details${me.mustChange ? " open" : ""}><summary>${esc(t("Change password"))}</summary>
@@ -42,6 +44,7 @@ async function openAccount() {
       <div class="row"><button type="button" data-pw>${esc(t("Change password"))}</button></div>
     </details>
     ${owner ? `<h3>${esc(t("Accounts"))}</h3><ul class="ac-users" aria-live="polite"><li>${esc(t("Loading…"))}</li></ul>` : ""}
+    <p id="ac-note" aria-live="polite"></p>
     <p class="error" id="ac-err" role="alert"></p>
     <div class="row"><button type="button" class="quiet" data-out>${esc(t("Sign out"))}</button><button type="button" class="quiet" data-close>${esc(t("Close"))}</button>${owner ? "" : `<button type="submit" class="primary">${esc(t("Save keys"))}</button>`}</div>
   </form>`;
@@ -61,7 +64,8 @@ async function openAccount() {
       if ("reset" in b.dataset) {
         if (!confirm(t("Give this account a temporary password? Their current password stops working."))) return;
         const res = await post(`/api/users/${b.dataset.id}/password`, {}), data = await res.json();
-        err.textContent = res.ok ? t("Temporary password: {password} (send it to them; they must change it after signing in)", { password: data.password }) : t(data.error);
+        err.textContent = res.ok ? "" : t(data.error);
+        d.querySelector("#ac-note").textContent = res.ok ? t("Temporary password: {password} (send it to them; they must change it after signing in)", { password: data.password }) : "";
         return;
       }
       if (b.dataset.status === "removed" && !confirm(t("Remove this account? They will not be able to sign in."))) return;
@@ -71,6 +75,12 @@ async function openAccount() {
     });
   }
   d.querySelector("[data-close]").addEventListener("click", () => d.close());
+  d.querySelectorAll("[data-clear]").forEach((b) => b.addEventListener("click", async () => {
+    const res = await post("/api/me/keys", { [b.dataset.clear]: "" }); // an empty value removes it
+    if (!res.ok) { err.textContent = t((await res.json()).error); return; }
+    d.close();
+    openAccount();
+  }));
   d.querySelector("[data-pw]").addEventListener("click", async () => {
     const res = await post("/api/me/password", { current: d.querySelector("#ac-cur").value, password: d.querySelector("#ac-new").value });
     if (!res.ok) { err.textContent = t((await res.json()).error); return; }

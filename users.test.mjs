@@ -94,4 +94,6 @@ test("an account's own voices are saved per language and checked", () => {
   assert.equal(users.setKeys(ed.id, { ELEVENLABS_VOICE_TE: "614hXxJLzZgeC6BDovkb" }), null);
   assert.equal(users.keysFor(users.find(ed.id)).ELEVENLABS_VOICE_TE, "614hXxJLzZgeC6BDovkb");
   assert.deepEqual(users.pub(users.find(ed.id)).keys, ["ELEVENLABS_VOICE_TE"]);
+  assert.equal(users.setKeys(ed.id, { ELEVENLABS_VOICE_TE: "" }), null, "an empty value removes it");
+  assert.deepEqual(users.pub(users.find(ed.id)).keys, []);
 });

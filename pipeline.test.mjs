@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { z } from "zod";
 import { lintCss } from "./designer.mjs";
-import { unsupportedNumbers, backTargets, Script, fillVariables, templateFor, savePhoto, cutawayMarkup, slateMarkup, projectDir, toWords, captionLines, captionMarkup, addCost, monthSpend, spendByAccount, sentences, translatedLines, subtitlePlan, cueFiles, gemini, reviewReasons, cutawaySchedule, PublishPack, downloadArgs } from "./pipeline.mjs";
+import { unsupportedNumbers, backTargets, Script, fillVariables, templateFor, savePhoto, cutawayMarkup, slateMarkup, projectDir, toWords, captionLines, captionMarkup, addCost, monthSpend, spendByAccount, voiceFor, useKeys, sentences, translatedLines, subtitlePlan, cueFiles, gemini, reviewReasons, cutawaySchedule, PublishPack, downloadArgs } from "./pipeline.mjs";
 
 test("fills variables in both single-quoted and Studio-saved templates", () => {
   const single = `<html data-composition-variables='[{"id":"headline","default":"Old"}]'>`;
@@ -339,4 +339,13 @@ test("the owner's spend split: each account's stories add up, old stories are th
   const split = spendByAccount(jobs, "o", new Date("2026-10-20"));
   assert.deepEqual(split.map((a) => [a.id, a.total]), [["o", 3], ["a", 4]], "an account with no paid story this month is left out");
   assert.equal(split.reduce((n, a) => n + a.total, 0), monthSpend(jobs, new Date("2026-10-20")).total);
+});
+
+test("voices: an editor's own voice for a language, else the built-in one, never the owner's", () => {
+  process.env.ELEVENLABS_VOICE_TE = "OwnerVoice0000000000";
+  try {
+    assert.equal(useKeys.run({ owner: false, keys: { ELEVENLABS_VOICE_TE: "EditorVoice000000000" } }, () => voiceFor("te")), "EditorVoice000000000");
+    assert.equal(useKeys.run({ owner: false, keys: {} }, () => voiceFor("te")), "nPczCjzI2devNBz1zQrb");
+    assert.equal(useKeys.run({ owner: true, keys: {} }, () => voiceFor("te")), "OwnerVoice0000000000");
+  } finally { delete process.env.ELEVENLABS_VOICE_TE; }
 });

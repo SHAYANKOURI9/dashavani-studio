@@ -12,6 +12,7 @@ import { sendMail } from "./mail.mjs";
 import { userStore, KEY_NAMES, VOICE_NAMES } from "./users.mjs";
 import { jobStore, showcase, showcaseMedia, visibleTo, overCap } from "./jobs.mjs";
 import { parseRange } from "./range.mjs";
+import { serialQueue } from "./queue.mjs";
 
 const PORT = Number(process.env.PORT ?? 4000);
 const RUN = randomUUID().slice(0, 8); // this run of the server: the intro shows first once per run
@@ -131,11 +132,8 @@ function translateLater(titles, lang) {
   return Promise.resolve(null); // nothing yet: localTitles shows English this time
 }
 
-// Single queue: renders are heavy, and HeyGen and ElevenLabs calls are paid — never run two at once.
-let queue = Promise.resolve();
-// Ids in the queue, in order; the one running stays first until it ends. A queued story shows how many are ahead.
-const line = [];
-const leave = (id) => line.splice(line.indexOf(id), 1);
+// Single queue: never run two at once. A queued story shows how many are ahead of it.
+const queue = serialQueue();
 
 // Bulletins: several stories joined into one video (sting once, a wipe between stories, end card, one music bed).
 const BULLETINS = path.join(P.DATA, "bulletins");
@@ -145,8 +143,7 @@ const saveBulletin = (b) => fs.writeFileSync(path.join(BULLETINS, `${b.id}.json`
 function buildBulletin(b) {
   saveBulletin(b);
   const who = P.useKeys.getStore();
-  line.push(b.id);
-  queue = queue.then(() => P.useKeys.run(who, async () => {
+  queue.add(b.id, () => P.useKeys.run(who, async () => {
     try {
       Object.assign(b, { status: "making" }); saveBulletin(b);
       const segments = [];
@@ -158,7 +155,6 @@ function buildBulletin(b) {
       Object.assign(b, { status: "error", error: e.message });
     }
     saveBulletin(b);
-    leave(b.id);
   }));
 }
 function run(job, steps, after) {
@@ -166,8 +162,7 @@ function run(job, steps, after) {
   save(job);
   // Paid steps spend the keys of whoever asked for them, even when they run later in the queue.
   const who = P.useKeys.getStore();
-  line.push(job.id);
-  queue = queue.then(() => P.useKeys.run(who, async () => {
+  queue.add(job.id, () => P.useKeys.run(who, async () => {
     try {
       for (const step of steps) {
         Object.assign(job, { status: step });
@@ -182,7 +177,6 @@ function run(job, steps, after) {
       Object.assign(job, { status: "error", error: `${job.status}: ${e.message}` });
     }
     save(job);
-    leave(job.id);
   }));
 }
 
@@ -505,7 +499,9 @@ async function route(req, res, url, parts, json, user) {
       const src = SOURCES[parts[2]];
       if (!src || !src.idPattern.test(parts[3])) return json(404, { error: "Unknown story source." });
       const lang = url.searchParams.get("lang");
-      return json(200, { ...(await src.item(parts[3], Object.hasOwn(P.LANGS, lang) ? lang : "en")), source: parts[2], sourceName: src.name, sourceFullName: src.fullName, url: src.url(parts[3]) });
+      // The source's own words when it fails ("PIB release 123: 404"): they say what went wrong and hold nothing private.
+      const item = await src.item(parts[3], Object.hasOwn(P.LANGS, lang) ? lang : "en").catch((e) => { throw Object.assign(e, { status: 502 }); });
+      return json(200, { ...item, source: parts[2], sourceName: src.name, sourceFullName: src.fullName, url: src.url(parts[3]) });
     }
     // Usage and prices: voice characters left, and what this month's stories cost by part.
     // Template designer: new looks described in words, as drafts until approved.
@@ -562,7 +558,7 @@ async function route(req, res, url, parts, json, user) {
       if (typeof brief !== "string" || brief.length > 500) return json(400, { error: "Brief is too long (500 characters max)." });
       const jobSource = source === undefined ? undefined : validSource(source);
       if (source !== undefined && !jobSource) return json(400, { error: "Unknown story source." });
-      const capped = overCap(allJobs(), user, { daily: Number(process.env.DAILY_STORIES) || 20, monthCap: Number(process.env.MONTHLY_CAP_INR) || 0, spent: user.role === "owner" ? P.monthSpend(allJobs()).total : 0 });
+      const capped = overCap(allJobs(), user, { daily: Number(process.env.DAILY_STORIES) || 20, monthCap: Number(process.env.MONTHLY_CAP_INR) || 0, spent: user.role === "owner" ? P.spendByAccount(allJobs(), user.id).find((a) => a.id === user.id)?.total ?? 0 : 0 }); // editors pay their own
       if (capped) return json(429, { error: capped });
       const job = { id: randomUUID(), createdBy: user.id, input: input.trim(), lang, format, presenter, ...(bothFormats && { bothFormats, ...(twinPresenter !== undefined && { twinPresenter }) }), brief: brief.trim(), createdAt: new Date().toISOString(), ...(group && { group }),
         ...(jobSource && { source: jobSource }) };
@@ -574,7 +570,7 @@ async function route(req, res, url, parts, json, user) {
     if (req.method === "GET" && parts.length === 3) {
       // The same story in its other languages (filed together, linked by group).
       const siblings = job.group ? allJobs().filter((o) => o.group === job.group && o.id !== job.id).map(({ id, lang, status, format }) => ({ id, lang, status, format: format ?? "landscape" })) : [];
-      return json(200, { ...job, ...(job.status === "queued" && line.includes(job.id) && { ahead: line.indexOf(job.id) }), back: P.backTargets(job), siblings, review: P.reviewReasons(job), timeline: P.timelineFor(job), ...(job.status === "script_review" && job.script && { scriptProblems: [...P.scriptProblems(P.dropUnused(job.script)), ...P.scriptMismatches(P.dropUnused(job.script), job.lang)] }) });
+      return json(200, { ...job, ...(job.status === "queued" && queue.ahead(job.id) > 0 && { ahead: queue.ahead(job.id) }), back: P.backTargets(job), siblings, review: P.reviewReasons(job), timeline: P.timelineFor(job), ...(job.status === "script_review" && job.script && { scriptProblems: [...P.scriptProblems(P.dropUnused(job.script)), ...P.scriptMismatches(P.dropUnused(job.script), job.lang)] }) });
     }
     // Photos can change while the script is under review; the cutaways are built when the draft is made.
     // English meaning of the script as it stands in the review form (not saved as the script).
