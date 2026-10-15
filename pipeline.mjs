@@ -981,7 +981,21 @@ export const clipStart = (clip, show) => clip.cuts?.find((c) => c > 0.2 && c + s
 
 // When each cutaway shows: spaced through the story, each moved to the nearest sentence start (a pause in the voice)
 // if one is close and it doesn't run into the previous cutaway. A clip shows no longer than it runs.
+// The editor may move a cutaway (job.cutawayAt: { file: seconds }) or leave it out (job.cutawayOff: [file]);
+// placed ones keep their time, then all are put in order, nudged so none overlap and none run past the story's end.
 export function cutawaySchedule(job, items) {
+  const off = new Set(job.cutawayOff ?? []), at = job.cutawayAt ?? {};
+  const auto = autoSchedule(job, items.filter((p) => !off.has(p.file)));
+  if (!Object.keys(at).length) return auto;
+  const total = job.seconds ?? 10, r = (x) => Math.round(x * 100) / 100, out = [];
+  const placed = auto.map((p) => (Object.hasOwn(at, p.file) ? { ...p, t: r(Math.min(Math.max(0, at[p.file]), total - 0.5 - p.show)), snapped: false, moved: true } : p));
+  for (const p of placed.sort((x, y) => x.t - y.t)) {
+    const t = Math.max(p.t, out.length ? r(out.at(-1).t + out.at(-1).show + 0.3) : 0);
+    if (t + p.show <= total - 0.5) out.push({ ...p, t });
+  }
+  return out;
+}
+function autoSchedule(job, items) {
   const total = job.seconds ?? 10, start = Math.min(3, total * 0.25), end = total - 1.5;
   const n = Math.min(items.length, Math.max(0, Math.floor((end - start) / 2.5)));
   const slot = (end - start) / Math.max(1, n), show = Math.min(4, slot * 0.7);

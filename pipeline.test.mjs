@@ -432,3 +432,19 @@ test("beats in real music: a kick drum under steady chords, like the bulletin's 
     }
   } finally { fs.rmSync(file, { force: true }); }
 });
+
+test("cutaways the editor placed: moved ones keep their time, dropped ones leave, none overlap or run past the end", () => {
+  const job = { seconds: 30, photos: [{ file: "a.jpg" }, { file: "b.jpg" }, { file: "c.mp4", kind: "clip", seconds: 2 }] };
+  const auto = cutawaySchedule(job, job.photos);
+  assert.equal(auto.length, 3);
+  const moved = cutawaySchedule({ ...job, cutawayAt: { "b.jpg": 4 }, cutawayOff: ["c.mp4"] }, job.photos);
+  assert.deepEqual(moved.map((m) => m.file), ["b.jpg", "a.jpg"], "in time order; the dropped clip is gone");
+  assert.equal(moved[0].t, 4);
+  assert.equal(moved[0].moved, true);
+  assert.ok(moved.every((m, i) => i === 0 || m.t >= moved[i - 1].t + moved[i - 1].show), "no overlap");
+  const late = cutawaySchedule({ ...job, cutawayAt: { "a.jpg": 29.5 } }, job.photos).find((m) => m.file === "a.jpg");
+  assert.ok(late && late.t + late.show <= 29.5, `kept inside the story (${late?.t})`);
+  const clash = cutawaySchedule({ ...job, cutawayAt: { "a.jpg": 10, "b.jpg": 10 } }, job.photos);
+  assert.ok(clash.every((m, i) => i === 0 || m.t >= clash[i - 1].t + clash[i - 1].show), "two set to the same time: the second waits");
+  assert.equal(cutawaySchedule({ ...job, cutawayOff: ["a.jpg", "b.jpg", "c.mp4"] }, job.photos).length, 0);
+});

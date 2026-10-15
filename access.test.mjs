@@ -161,6 +161,33 @@ test("while the script is being written, the story shows it growing; afterwards 
   assert.equal(JSON.parse(fs.readFileSync(path.join(DATA, "jobs", `${id}.json`), "utf8")).writing, undefined, "never saved");
 });
 
+test("at draft review: on-screen text and cutaways change without a new voice", async () => {
+  // Stories waiting at draft review (the redraw they queue runs in the background; only what's queued is checked).
+  const atDraft = () => {
+    const id = seedStory(ids.a), f = path.join(DATA, "jobs", `${id}.json`);
+    fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, "utf8")), status: "draft_review", draft: "draft-v1.mp4", seconds: 30, script: { template: "lead", category: "NEWS", headline: "Old", standfirst: "", dateline_city: "", narration: "Spoken words.", ticker: ["one"] }, photos: [{ file: "0123456789abcdef.jpg", from: "Uploaded" }] }));
+    return id;
+  };
+  let id = atDraft();
+  const act = (name, body, who = a) => who.req("POST", `/api/jobs/${id}/${name}`, body);
+  assert.equal((await act("adjust", { script: { headline: "" } })).status, 409, "a headline can't be empty");
+  assert.equal((await act("adjust", { script: { narration: "New words" } })).status, 409, "the spoken words need a new voice: not here");
+  assert.equal((await act("adjust", { script: { headline: "Old" } })).status, 409, "nothing changed");
+  assert.equal((await act("adjust", { at: { "nope.jpg": 3 } })).status, 409, "only this story's own photos");
+  assert.equal((await act("adjust", { at: { "0123456789abcdef.jpg": -1 } })).status, 409);
+  assert.equal((await act("adjust", { script: { headline: "New headline" } }, b)).status, 404, "another editor can't");
+  const r = await act("adjust", { script: { headline: "New headline", ticker: ["one", "two"] }, off: ["0123456789abcdef.jpg"] });
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.script.headline, r.body.script.ticker, r.body.script.narration], ["New headline", ["one", "two"], "Spoken words."]);
+  assert.deepEqual(r.body.cutawayOff, ["0123456789abcdef.jpg"], "text and cutaways in one go: one redraw");
+  assert.deepEqual(r.body.pending.steps, ["compose", "draft"], "only the page and draft are made again; no paid step");
+  id = atDraft();
+  const c = await act("adjust", { at: { "0123456789abcdef.jpg": 6 } });
+  assert.equal(c.status, 200);
+  assert.deepEqual([c.body.cutawayAt, c.body.cutawayOff], [{ "0123456789abcdef.jpg": 6 }, []]);
+  assert.deepEqual(c.body.pending.steps, ["compose", "draft"]);
+});
+
 test("an unexpected error says so plainly, without file paths or tool output", async () => {
   const r = await a.req("GET", `/media/${ids.storyA}/download/final-v1.mp4?q=720`); // the "video" is not a video: ffmpeg fails
   assert.equal(r.status, 500);
