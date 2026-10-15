@@ -9,7 +9,7 @@ import * as D from "./designer.mjs";
 import * as Y from "./youtube.mjs";
 import { allowedHost, isLocal, rateLimit, showIntroFirst, sessionToken, sessionUser, cookieUser, isOpen, safeNext, SESSION_HOURS } from "./auth.mjs";
 import { sendMail } from "./mail.mjs";
-import { userStore, KEY_NAMES, VOICE_NAMES } from "./users.mjs";
+import { userStore } from "./users.mjs";
 import { jobStore, showcase, showcaseMedia, visibleTo, overCap } from "./jobs.mjs";
 import { parseRange } from "./range.mjs";
 import { serialQueue } from "./queue.mjs";
@@ -21,11 +21,11 @@ const JOBS = path.join(P.DATA, "jobs");
 const { load, save, all: allJobs } = jobStore(JOBS);
 const loadAny = load, allJobsAny = allJobs; // the whole studio, for the queue and the intro
 
-// Signs the sign-in cookies and encrypts saved API keys. Made once and kept in data/ (never in git) unless set.
+// Signs the sign-in cookies. Made once and kept in data/ (never in git) unless set.
 const SECRET_FILE = path.join(P.DATA, "session-secret");
 if (!process.env.SESSION_SECRET && !fs.existsSync(SECRET_FILE)) { fs.mkdirSync(P.DATA, { recursive: true }); fs.writeFileSync(SECRET_FILE, randomBytes(32).toString("base64url"), { mode: 0o600 }); }
 const SECRET = process.env.SESSION_SECRET || fs.readFileSync(SECRET_FILE, "utf8").trim();
-const users = userStore(path.join(P.DATA, "users.json"), SECRET);
+const users = userStore(path.join(P.DATA, "users.json"));
 // Signs an account's cookies. A new password, or signing out (which bumps session), ends all of them at once.
 const sessionKey = (u) => `${SECRET}:${u.hash}:${u.session ?? 0}`;
 // Content-Security-Policy: scripts only from this site, plus the built pages' own inline scripts (the theme switch,
@@ -160,7 +160,7 @@ function buildBulletin(b) {
 function run(job, steps, after) {
   Object.assign(job, { status: "queued", error: null, pending: { steps, after } });
   save(job);
-  // Paid steps spend the keys of whoever asked for them, even when they run later in the queue.
+  // Owner-only steps (YouTube) still know who asked, even when they run later in the queue.
   const who = P.useKeys.getStore();
   queue.add(job.id, () => P.useKeys.run(who, async () => {
     try {
@@ -343,7 +343,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && parts[0] !== "api" && parts[0] !== "media") { res.writeHead(302, { Location: `/login?next=${encodeURIComponent(url.pathname + url.search)}` }); return res.end(); }
     return json(401, { error: "Sign in to do this", signIn: true });
   }
-  return P.useKeys.run({ owner: user?.role === "owner", keys: users.keysFor(user) }, () => route(req, res, url, parts, json, user));
+  return P.useKeys.run({ owner: user?.role === "owner" }, () => route(req, res, url, parts, json, user));
 });
 
 // Through the tunnel the visitor's address comes from Cloudflare; on this Mac it is the socket's.
@@ -423,14 +423,8 @@ async function route(req, res, url, parts, json, user) {
       signIn(out.user);
       return json(200, { ok: true });
     }
-    // The signed-in account: who it is and which of its own keys are saved (never the keys themselves).
-    if (req.method === "GET" && url.pathname === "/api/me") return json(200, { ...users.pub(user), keyNames: KEY_NAMES, voiceNames: VOICE_NAMES });
-    // body: { GEMINI_API_KEY?, ... } — an account's own keys; the owner's live in .env.local
-    if (req.method === "POST" && url.pathname === "/api/me/keys") {
-      if (user.role === "owner") return json(409, { error: "The owner's keys are in .env.local" });
-      const problem = users.setKeys(user.id, await body(req));
-      return problem ? json(400, { error: problem }) : json(200, users.pub(users.find(user.id)));
-    }
+    // The signed-in account: who it is and its role (API keys stay in .env.local and never reach the page).
+    if (req.method === "GET" && url.pathname === "/api/me") return json(200, users.pub(user));
     // The owner approves or removes the accounts people sign up for.
     if (req.method === "GET" && url.pathname === "/api/users") return user.role === "owner" ? json(200, users.list()) : json(403, { error: "Only the owner manages accounts" });
     if (req.method === "POST" && parts[0] === "api" && parts[1] === "users" && parts[3] === "status" && parts.length === 4) {
@@ -537,7 +531,7 @@ async function route(req, res, url, parts, json, user) {
     if (req.method === "GET" && parts[0] === "media" && parts[1] === "bulletins" && visibleTo(loadBulletin((parts[2] ?? "").replace(/\.mp4$/, "")), user)) return sendFile(res, path.join(BULLETINS, parts[2]), req);
     if (req.method === "GET" && url.pathname === "/api/usage") {
       const all = allJobs();
-      return json(200, { voice: await voiceCredits(P.useKeys.getStore().keys.ELEVENLABS_API_KEY, user.role === "owner" ? null : new Set(all.map((j) => j.id))), month: P.monthSpend(all), rates: P.RATES,
+      return json(200, { voice: await voiceCredits(process.env.ELEVENLABS_API_KEY, user.role === "owner" ? null : new Set(all.map((j) => j.id))), month: P.monthSpend(all), rates: P.RATES,
         ...(user.role === "owner" && { accounts: P.spendByAccount(all, user.id).map((a) => ({ ...a, email: users.find(a.id)?.email ?? "removed account" })) }) });
     }
     if (parts[0] !== "api" || parts[1] !== "jobs") return json(404, { error: "Not found" });
@@ -558,7 +552,7 @@ async function route(req, res, url, parts, json, user) {
       if (typeof brief !== "string" || brief.length > 500) return json(400, { error: "Brief is too long (500 characters max)." });
       const jobSource = source === undefined ? undefined : validSource(source);
       if (source !== undefined && !jobSource) return json(400, { error: "Unknown story source." });
-      const capped = overCap(allJobs(), user, { daily: Number(process.env.DAILY_STORIES) || 20, monthCap: Number(process.env.MONTHLY_CAP_INR) || 0, spent: user.role === "owner" ? P.spendByAccount(allJobs(), user.id).find((a) => a.id === user.id)?.total ?? 0 : 0 }); // editors pay their own
+      const capped = overCap(allJobs(), user, { daily: Number(process.env.DAILY_STORIES) || 20, monthCap: Number(process.env.MONTHLY_CAP_INR) || 0, spent: P.monthSpend(allJobsAny()).total });
       if (capped) return json(429, { error: capped });
       const job = { id: randomUUID(), createdBy: user.id, input: input.trim(), lang, format, presenter, ...(bothFormats && { bothFormats, ...(twinPresenter !== undefined && { twinPresenter }) }), brief: brief.trim(), createdAt: new Date().toISOString(), ...(group && { group }),
         ...(jobSource && { source: jobSource }) };

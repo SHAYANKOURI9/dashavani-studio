@@ -35,11 +35,12 @@ export function showcaseMedia(pathname, load, ownerId) {
   return !!job && onIntro(job, ownerId) && (m[2] === "poster.jpg" || job.finals.includes(m[2]));
 }
 
-// Limits on new stories: an editor files at most `daily` a day (India's date); the owner, when MONTHLY_CAP_INR is set,
-// none once this month's spend reaches it. The editors' own keys pay for their work, but they all share this Mac's render queue.
+// Limits on new stories: an editor files at most `daily` a day (India's date), and when MONTHLY_CAP_INR is set nobody
+// files once this month's spend reaches it (all work runs on the server's keys, so all of it counts).
 const istDay = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 export function overCap(jobs, user, { daily, monthCap = 0, spent = 0 }, now = new Date()) {
-  if (user.role === "owner") return monthCap && spent >= monthCap ? `This month's spending reached your ₹${monthCap} limit (MONTHLY_CAP_INR in .env.local)` : null;
+  if (monthCap && spent >= monthCap) return `This month's spending reached the studio's ₹${monthCap} limit (MONTHLY_CAP_INR in .env.local)`;
+  if (user.role === "owner") return null;
   const today = jobs.filter((j) => j.createdBy === user.id && istDay(j.createdAt) === istDay(now)).length;
   return today >= daily ? `You can file ${daily} stories a day. Try again tomorrow` : null;
 }

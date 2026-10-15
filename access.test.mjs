@@ -100,10 +100,10 @@ test("a visitor who isn't signed in gets nothing but the open pages", async () =
 test("admin actions are the owner's", async () => {
   for (const [m, u, d] of [["GET", "/api/users"], ["POST", `/api/users/${ids.a}/status`, { status: "removed" }], ["POST", `/api/users/${ids.owner}/password`, {}], ["POST", "/api/templates/c-12345678/status", { status: "approved" }]])
     assert.equal((await a.req(m, u, d)).status, 403, `editor: ${m} ${u}`);
-  assert.equal((await a.req("POST", "/api/me/keys", { GEMINI_API_KEY: "k" })).body.keys[0], "GEMINI_API_KEY", "an editor saves their own keys");
+  assert.equal((await a.req("POST", "/api/me/keys", { GEMINI_API_KEY: "k" })).status, 404, "nobody gives the app an API key");
   assert.equal((await a.req("POST", `/api/jobs/${ids.storyA}/studio`, {})).status, 403, "Studio is the owner's");
   assert.equal("accounts" in (await a.req("GET", "/api/usage")).body, false, "only the owner sees the spend per account");
-  assert.equal((await owner.req("POST", "/api/me/keys", {})).status, 409, "the owner's keys are in .env.local");
+  assert.equal("keys" in (await a.req("GET", "/api/me")).body, false);
 });
 
 test("sign-in, sign-out everywhere, change and reset of a password", async () => {
@@ -162,23 +162,25 @@ test("an editor files at most 20 stories a day; another account is not held up",
   assert.equal((await a.req("POST", "/api/jobs", story)).status, 201);
 });
 
-test("the owner's monthly cap counts only the owner's own spending", async () => {
+test("the monthly cap counts everyone's spending (all on the server's keys) and stops everyone", async () => {
   const story = { input: "The state government announced a new irrigation scheme for farmers today.", lang: "en" };
   const spend = (createdBy, inr) => { const id = seedStory(createdBy), f = path.join(DATA, "jobs", `${id}.json`); fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, "utf8")), cost: { script: { inr }, voice: { inr: 0 }, presenter: { inr: 0 } } })); };
-  spend(ids.a, 500);
-  assert.equal((await owner.req("POST", "/api/jobs", story)).status, 201, "editors pay with their own keys: their ₹500 doesn't count");
-  spend(ids.owner, 100);
-  const r = await owner.req("POST", "/api/jobs", story);
-  assert.equal(r.status, 429);
-  assert.match(r.body.error, /₹100/);
+  spend(ids.a, 60);
+  assert.equal((await owner.req("POST", "/api/jobs", story)).status, 201, "₹60 of ₹100");
+  spend(ids.owner, 40);
+  for (const who of [owner, a]) {
+    const r = await who.req("POST", "/api/jobs", story);
+    assert.equal(r.status, 429);
+    assert.match(r.body.error, /₹100/);
+  }
 });
 
 test("signed-in actions are limited to 120 a minute per account", async () => {
   let last;
-  for (let i = 0; i < 121; i++) last = await a.req("POST", "/api/me/keys", {});
+  for (let i = 0; i < 121; i++) last = await a.req("POST", "/api/me/password", {});
   assert.equal(last.status, 429, "the 121st in a minute");
   assert.equal((await a.req("GET", "/api/jobs")).status, 200, "reading is never limited (the page polls)");
-  assert.equal((await owner.req("POST", "/api/me/keys", {})).status, 409, "another account is unaffected");
+  assert.equal((await owner.req("POST", "/api/me/password", {})).status, 400, "another account is unaffected");
 });
 
 test("every route in server.mjs is asked about above", () => {

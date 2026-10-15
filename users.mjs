@@ -1,15 +1,9 @@
-// Studio accounts, in one JSON file. The first account is the owner and uses the API keys in .env.local;
-// everyone after that waits for the owner's approval and brings their own keys, so nobody spends the owner's money.
-// Passwords are scrypt hashes; saved API keys are encrypted (AES-256-GCM) with a key made from the server secret.
-import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+// Studio accounts, in one JSON file. The first account is the owner; everyone after that waits for the owner's approval.
+// Passwords are scrypt hashes. API keys are never kept here: every account's work uses the server's .env.local.
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-// What a non-owner must bring to make videos. The owner's come from .env.local.
-export const KEY_NAMES = ["GEMINI_API_KEY", "ELEVENLABS_API_KEY", "HEYGEN_API_KEY", "HEYGEN_AVATAR_ID"];
-// Optional: a voice from the account's own ElevenLabs library for each language (else the built-in defaults).
-export const VOICE_NAMES = ["en", "te", "hi", "ta", "kn", "ml", "mr", "bn", "gu", "or"].map((c) => `ELEVENLABS_VOICE_${c.toUpperCase()}`);
-const VOICE_ID = /^[A-Za-z0-9]{10,40}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LOCK_AFTER = 5, LOCK_MS = 15 * 60_000;
 const RESET_MS = 60 * 60_000, RESET_GAP_MS = 60_000; // a reset link lasts an hour; one email a minute per account
@@ -18,7 +12,7 @@ const sha = (s) => createHash("sha256").update(s).digest("base64url");
 
 const hash = (password, salt) => scryptSync(password, salt, 64).toString("base64url");
 
-export function userStore(file, secret) {
+export function userStore(file) {
   const read = () => (fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : []);
   const write = (users) => {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -26,21 +20,9 @@ export function userStore(file, secret) {
     fs.writeFileSync(tmp, JSON.stringify(users, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, file);
   };
-  const box = createHash("sha256").update(`dashavani-keys:${secret}`).digest();
-  const seal = (obj) => {
-    const iv = randomBytes(12), c = createCipheriv("aes-256-gcm", box, iv);
-    const data = Buffer.concat([c.update(JSON.stringify(obj)), c.final()]);
-    return [iv, c.getAuthTag(), data].map((b) => b.toString("base64url")).join(".");
-  };
-  const open = (sealed) => {
-    const [iv, tag, data] = sealed.split(".").map((s) => Buffer.from(s, "base64url"));
-    const d = createDecipheriv("aes-256-gcm", box, iv);
-    d.setAuthTag(tag);
-    return JSON.parse(Buffer.concat([d.update(data), d.final()]).toString());
-  };
   const failures = new Map(); // email -> { n, until }; in memory, so a restart clears it
-  // What the browser may see: never the hash or the keys themselves.
-  const pub = (u) => u && { id: u.id, email: u.email, role: u.role, status: u.status, createdAt: u.createdAt, keys: [...KEY_NAMES, ...VOICE_NAMES].filter((k) => u.keys && open(u.keys)[k]), ...(u.mustChange && { mustChange: true }) };
+  // What the browser may see: never the password hash.
+  const pub = (u) => u && { id: u.id, email: u.email, role: u.role, status: u.status, createdAt: u.createdAt, ...(u.mustChange && { mustChange: true }) };
   const setPassword = (u, password) => { u.salt = randomBytes(16).toString("base64url"); u.hash = hash(password, u.salt); };
   const matches = (u, password) => typeof password === "string" && timingSafeEqual(Buffer.from(hash(password, u.salt)), Buffer.from(u.hash));
 
@@ -132,26 +114,6 @@ export function userStore(file, secret) {
       else if (status === "approved") { u.status = "approved"; write(users); }
       else return "Approve or remove";
       return null;
-    },
-    // keys: { NAME: value }; an empty value removes that key.
-    setKeys(id, keys) {
-      const users = read(), u = users.find((x) => x.id === id);
-      if (!u) return "No such account";
-      const now = u.keys ? open(u.keys) : {};
-      for (const k of [...KEY_NAMES, ...VOICE_NAMES]) {
-        if (typeof keys?.[k] !== "string") continue;
-        if (keys[k].length > 300) return `${k} is too long`;
-        if (VOICE_NAMES.includes(k) && keys[k].trim() && !VOICE_ID.test(keys[k].trim())) return "A voice ID is letters and numbers, as shown in ElevenLabs";
-        if (keys[k].trim()) now[k] = keys[k].trim(); else delete now[k];
-      }
-      u.keys = seal(now);
-      write(users);
-      return null;
-    },
-    // The keys this user's work runs with: the owner's .env.local, everyone else their own (possibly none).
-    keysFor(user, env = process.env) {
-      if (user?.role === "owner") return Object.fromEntries(KEY_NAMES.map((k) => [k, env[k]]));
-      return user?.keys ? open(user.keys) : {};
     },
   };
 }

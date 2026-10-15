@@ -341,11 +341,10 @@ test("the owner's spend split: each account's stories add up, old stories are th
   assert.equal(split.reduce((n, a) => n + a.total, 0), monthSpend(jobs, new Date("2026-10-20")).total);
 });
 
-test("voices: an editor's own voice for a language, else the built-in one, never the owner's", () => {
+test("voices come from the server's .env.local for every account", () => {
   process.env.ELEVENLABS_VOICE_TE = "OwnerVoice0000000000";
   try {
-    assert.equal(useKeys.run({ owner: false, keys: { ELEVENLABS_VOICE_TE: "EditorVoice000000000" } }, () => voiceFor("te")), "EditorVoice000000000");
-    assert.equal(useKeys.run({ owner: false, keys: {} }, () => voiceFor("te")), "nPczCjzI2devNBz1zQrb");
-    assert.equal(useKeys.run({ owner: true, keys: {} }, () => voiceFor("te")), "OwnerVoice0000000000");
+    for (const owner of [true, false]) assert.equal(useKeys.run({ owner }, () => voiceFor("te")), "OwnerVoice0000000000");
+    assert.equal(voiceFor("hi"), "nPczCjzI2devNBz1zQrb", "a language without one gets the built-in voice");
   } finally { delete process.env.ELEVENLABS_VOICE_TE; }
 });

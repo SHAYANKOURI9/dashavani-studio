@@ -67,9 +67,7 @@ export const LANGS = {
 // Pick voices that match the HeyGen avatar's gender.
 // ELEVENLABS_VOICE_<CODE> picks a voice per language (e.g. ELEVENLABS_VOICE_TA); the default for the Indian languages
 // is Brian, whose multilingual voice eleven_v3 uses for all of them.
-// The owner's voices may live in their own ElevenLabs library, so other accounts get the built-in defaults.
-// Other accounts may pick their own per language in the Account panel (saved with their keys).
-export const voiceFor = (lang) => (useKeys.getStore() && !useKeys.getStore().owner ? useKeys.getStore().keys?.[`ELEVENLABS_VOICE_${lang.toUpperCase()}`] : process.env[`ELEVENLABS_VOICE_${lang.toUpperCase()}`]) || (lang === "en" ? "onwK4e9ZLuTAKqWW03F9" : "nPczCjzI2devNBz1zQrb");
+export const voiceFor = (lang) => process.env[`ELEVENLABS_VOICE_${lang.toUpperCase()}`] || (lang === "en" ? "onwK4e9ZLuTAKqWW03F9" : "nPczCjzI2devNBz1zQrb");
 
 const ScriptShape = z.object({
   template: z.enum(["lead", "breaking", "numbers", "points", "quote", "photo"]),
@@ -1152,15 +1150,10 @@ function setAttr(html, tagRe, attr, value) {
   return html.replace(tag, tag.replace(re, ` ${attr}="${value}"`));
 }
 
-// Whose API keys the work in progress spends: the server runs each request and queued job inside
-// useKeys.run({ owner, keys }, ...). Outside the server (scripts, tests) .env.local is used.
+// Who asked for the work in progress (owner-only steps check it): the server runs each request and queued job
+// inside useKeys.run({ owner }, ...). Every account's work uses the API keys in the server's .env.local.
 export const useKeys = new AsyncLocalStorage();
 function need(name) {
-  const who = useKeys.getStore();
-  if (who && !who.owner) {
-    if (!who.keys[name]) throw Object.assign(new Error(`Add your own ${name} under Account first: this studio's keys are only for its owner`), { status: 402 });
-    return who.keys[name];
-  }
   if (!process.env[name]) throw new Error(`${name} is not set in .env.local`);
   return process.env[name];
 }

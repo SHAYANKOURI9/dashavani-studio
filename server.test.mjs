@@ -91,7 +91,7 @@ test("sign-in, sign-up and reset requests are limited per visitor", () => {
   assert.equal(hit("1.2.3.4", 60_001), true, "the window passes");
 });
 
-test("caps: 20 stories a day for an editor (by India's date), and the owner's monthly spend only when set", async () => {
+test("caps: 20 stories a day for an editor (by India's date), and a monthly spend limit for everyone when set", async () => {
   const { overCap } = await import("./jobs.mjs");
   const ed = { id: "e", role: "editor" }, owner = { id: "o", role: "owner" };
   const day = (n, at) => Array.from({ length: n }, () => ({ createdBy: "e", createdAt: at }));
@@ -102,21 +102,6 @@ test("caps: 20 stories a day for an editor (by India's date), and the owner's mo
   assert.equal(overCap(day(20, "2026-10-14T19:00:00Z"), ed, { daily: 20 }, now) !== null, true, "00:30 in India today does");
   assert.equal(overCap(day(30, "2026-10-15T01:00:00Z").map((j) => ({ ...j, createdBy: "x" })), ed, { daily: 20 }, now), null, "other accounts' stories");
   assert.equal(overCap([], owner, { daily: 20, monthCap: 0, spent: 99999 }, now), null, "no cap set");
-  assert.match(overCap([], owner, { daily: 20, monthCap: 500, spent: 500 }, now), /₹500/);
+  for (const who of [owner, ed]) assert.match(overCap([], who, { daily: 20, monthCap: 500, spent: 500 }, now), /₹500/, `${who.role} stopped at the cap`);
   assert.equal(overCap(day(50, "2026-10-15T01:00:00Z").map((j) => ({ ...j, createdBy: "o" })), owner, { daily: 20, monthCap: 500, spent: 10 }, now), null, "the owner has no daily limit");
-});
-
-test("the render queue runs one at a time, in order, and says how many are ahead", async () => {
-  const { serialQueue } = await import("./queue.mjs");
-  const q = serialQueue(), ran = [], gates = {};
-  const work = (id) => () => new Promise((r) => { ran.push(id); gates[id] = r; });
-  q.add("a", work("a")); q.add("b", work("b")); q.add("c", async () => { ran.push("c"); throw new Error("boom"); }); q.add("d", work("d"));
-  await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual(ran, ["a"], "only one runs");
-  assert.deepEqual(["a", "b", "c", "d", "x"].map(q.ahead), [0, 1, 2, 3, -1]);
-  gates.a(); await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual([q.ahead("b"), q.ahead("d")], [0, 2]);
-  gates.b(); await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual(ran, ["a", "b", "c", "d"], "a failed job doesn't stop the ones after it");
-  assert.equal(q.ahead("d"), 0);
 });

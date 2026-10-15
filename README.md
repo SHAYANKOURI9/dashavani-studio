@@ -60,11 +60,11 @@ Then open **http://localhost:4000**. Stop the server with **Ctrl+C**. Both comma
 
 ## 4. API keys (real mode only)
 
-Put these in `.env.local`. Never commit or send this file. They are used only by the **owner account**.
+Put these in `.env.local`. Never commit or send this file. Every account's videos use them; they never appear in the app, and nobody can paste a key into it.
 
 Keep it readable only by you: `chmod 600 .env.local` (the server warns at start if it isn't).
 
-**Accounts.** Every page except the intro needs an account. The first person to sign up (at `/signup`) becomes the owner; anyone after that waits until the owner approves them under **Account** in the top bar. Other accounts never use the owner's keys: each pastes its own Gemini, ElevenLabs and HeyGen keys under **Account** (stored encrypted in `data/users.json`), and only the owner can upload to YouTube. Forgot a password? **Forgot password?** on the sign-in page emails a one-time link (valid for an hour) to set a new one; the new password signs out every older sign-in. The email is sent from your own mail account: fill in the `SMTP_*` lines in `.env.local` (see `.env.example`; for Gmail, an App Password). Until then the link is printed in the server's terminal.
+**Accounts.** Every page except the intro needs an account. The first person to sign up (at `/signup`) becomes the owner; anyone after that waits until the owner approves them under **Account** in the top bar. Every account's videos use the keys in `.env.local`, so you pay for all of them: editors may file 20 stories a day (`DAILY_STORIES`), and `MONTHLY_CAP_INR` stops everyone once the month's spending reaches it. Only the owner can upload to YouTube. Forgot a password? **Forgot password?** on the sign-in page emails a one-time link (valid for an hour) to set a new one; the new password signs out every older sign-in. The email is sent from your own mail account: fill in the `SMTP_*` lines in `.env.local` (see `.env.example`; for Gmail, an App Password). Until then the link is printed in the server's terminal.
 
 | Key | Where to get it | Used for |
 |---|---|---|

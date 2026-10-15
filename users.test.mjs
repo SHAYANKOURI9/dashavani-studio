@@ -7,7 +7,7 @@ import { userStore } from "./users.mjs";
 
 const fresh = () => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "users-")), "users.json");
-  return { file, users: userStore(file, "test-secret") };
+  return { file, users: userStore(file) };
 };
 
 test("the first account is the owner; later ones wait for approval", () => {
@@ -35,20 +35,14 @@ test("wrong passwords: one answer for every failure, and a lock after five", () 
   assert.ok(users.signIn("o@example.com", "longpassword", 2000 + 16 * 60_000).user, "unlocked after 15 minutes");
 });
 
-test("nothing secret is stored or shown in the clear; only the owner gets .env.local keys", () => {
+test("nothing secret is stored or shown in the clear, and no API key is ever kept for an account", () => {
   const { file, users } = fresh();
-  const owner = users.signUp("o@example.com", "longpassword").user;
+  users.signUp("o@example.com", "longpassword");
   const ed = users.signUp("e@example.com", "longpassword").user;
-  assert.equal(users.setKeys(ed.id, { GEMINI_API_KEY: "AIza-editor-own-key", NOT_A_KEY: "x" }), null);
-  const raw = fs.readFileSync(file, "utf8");
-  assert.ok(!raw.includes("longpassword") && !raw.includes("AIza-editor-own-key"), "no plain password or key on disk");
-  const env = { GEMINI_API_KEY: "AIza-owner", ELEVENLABS_API_KEY: "el-owner" };
-  assert.equal(users.keysFor(users.find(owner.id), env).GEMINI_API_KEY, "AIza-owner");
-  assert.deepEqual(users.keysFor(users.find(ed.id), env), { GEMINI_API_KEY: "AIza-editor-own-key" }, "an editor never gets the owner's keys");
-  assert.deepEqual(users.keysFor(null, env), {});
-  assert.deepEqual(users.pub(users.find(ed.id)).keys, ["GEMINI_API_KEY"], "the browser learns which keys are saved, not what they are");
-  assert.equal(users.setKeys(ed.id, { GEMINI_API_KEY: "" }), null);
-  assert.deepEqual(users.keysFor(users.find(ed.id), env), {}, "an empty value removes a key");
+  assert.ok(!fs.readFileSync(file, "utf8").includes("longpassword"), "no plain password on disk");
+  assert.equal(users.setKeys, undefined, "accounts can't save keys: they live only in the server's .env.local");
+  assert.equal("keys" in users.pub(users.find(ed.id)), false);
+  assert.deepEqual(Object.keys(users.pub(users.find(ed.id))).sort(), ["createdAt", "email", "id", "role", "status"]);
 });
 
 test("forgot password: a one-time link that lasts an hour, stored only as a hash", () => {
@@ -84,16 +78,4 @@ test("change password needs the current one; the owner's temporary password must
   assert.equal(users.pub(users.signIn("ed@example.com", password).user).mustChange, true);
   users.changePassword(ed.id, password, "mine-again");
   assert.equal(users.pub(users.find(ed.id)).mustChange, undefined, "changed: no longer forced");
-});
-
-test("an account's own voices are saved per language and checked", () => {
-  const { users } = fresh();
-  users.signUp("o@example.com", "longpassword");
-  const ed = users.signUp("ed@example.com", "longpassword").user;
-  assert.match(users.setKeys(ed.id, { ELEVENLABS_VOICE_TE: "../../x" }), /voice ID/);
-  assert.equal(users.setKeys(ed.id, { ELEVENLABS_VOICE_TE: "614hXxJLzZgeC6BDovkb" }), null);
-  assert.equal(users.keysFor(users.find(ed.id)).ELEVENLABS_VOICE_TE, "614hXxJLzZgeC6BDovkb");
-  assert.deepEqual(users.pub(users.find(ed.id)).keys, ["ELEVENLABS_VOICE_TE"]);
-  assert.equal(users.setKeys(ed.id, { ELEVENLABS_VOICE_TE: "" }), null, "an empty value removes it");
-  assert.deepEqual(users.pub(users.find(ed.id)).keys, []);
 });
