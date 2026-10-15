@@ -20,5 +20,5 @@ jobs:
             web/package-lock.json
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm ci
+      - run: npm run build # first: the server's tests check the built pages (web/dist)
       - run: npm test
-      - run: npm run build
