@@ -137,6 +137,17 @@ Money is spent only when you **approve the draft** (HeyGen) and, much less, when
 
 The quick-tunnel address changes every time you start it. For a fixed address on your own domain, use a named Cloudflare tunnel and set `PUBLIC_HOST=studio.example.com` and `PUBLIC_URL=https://studio.example.com` in `.env.local`. Online, sign-in cookies are HTTPS-only, sign-in/sign-up/reset are limited to 20 tries per 15 minutes per connection, and **Edit in Studio** works only for the owner on this Mac.
 
+## 4b2. Showcase page on Vercel (free, always online)
+
+The studio itself can't run on Vercel (renders take minutes and need ffmpeg, Chrome and the `data/` folder), so
+`showcase/` is a plain static page about it: the hero image, three finished videos (under 3 MB together), the steps and
+screenshots. It works even when your Mac is off.
+
+1. On vercel.com: **Add New → Project**, import `dashavani-studio`.
+2. **Root Directory:** `showcase`. **Application Preset:** Other. No build command. **Deploy.**
+3. Every merge to `main` updates it. To show an **Open the live studio** button, put your studio's fixed address
+   (your tunnel) in `showcase/config.js`.
+
 ## 4c. Backup and restore
 
 `data/` is the only copy of your accounts, stories and videos, and it isn't in git. `npm run backup` zips it to
