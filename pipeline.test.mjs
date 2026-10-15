@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { z } from "zod";
 import { lintCss } from "./designer.mjs";
-import { unsupportedNumbers, backTargets, Script, fillVariables, templateFor, savePhoto, cutawayMarkup, slateMarkup, projectDir, toWords, captionLines, captionMarkup, addCost, monthSpend, spendByAccount, voiceFor, useKeys, partialScript, sceneCuts, clipStart, sentences, translatedLines, subtitlePlan, cueFiles, gemini, reviewReasons, cutawaySchedule, PublishPack, downloadArgs } from "./pipeline.mjs";
+import { unsupportedNumbers, backTargets, Script, fillVariables, templateFor, savePhoto, cutawayMarkup, slateMarkup, projectDir, toWords, captionLines, captionMarkup, addCost, monthSpend, spendByAccount, voiceFor, useKeys, partialScript, sceneCuts, clipStart, sentences, translatedLines, subtitlePlan, cueFiles, gemini, reviewReasons, cutawaySchedule, PublishPack, downloadArgs, findBeat, beatOf, onBeats } from "./pipeline.mjs";
 
 test("fills variables in both single-quoted and Studio-saved templates", () => {
   const single = `<html data-composition-variables='[{"id":"headline","default":"Old"}]'>`;
@@ -394,4 +394,41 @@ test("shot changes: read from ffmpeg's report, and a cutaway starts on one that 
     const [markup] = cutawayMarkup(job.photos.map((p) => ({ ...p, t: 4, show: 2 })), { category: "NEWS", headline: "H", vertical: false }).split("<!--script-->");
     assert.match(markup, new RegExp(`data-playback-start="${job.photos[0].cuts[0]}"`), "the cutaway plays from the clean cut");
   } finally { fs.rmSync(projectDir(job), { recursive: true, force: true }); fs.rmSync(src, { force: true }); }
+});
+
+test("beats: the tempo and where the beats fall, found in the music itself", () => {
+  const rate = 8000, clicks = (period, phase, secs) => {
+    const a = new Float32Array(rate * secs);
+    for (let t = phase; t < secs; t += period) for (let k = 0; k < 200; k++) a[Math.round(t * rate) + k] = Math.sin(k / 3) * Math.exp(-k / 40);
+    return a;
+  };
+  for (const [period, phase] of [[0.5, 0], [0.6, 0.2], [0.42, 0.31]]) {
+    const b = findBeat(clicks(period, phase, 20), rate);
+    assert.ok(Math.abs(b.period - period) <= 0.011, `period ${b.period} for ${period}`);
+    assert.ok(Math.abs(b.phase - phase) <= 0.021, `phase ${b.phase} for ${phase}`);
+  }
+});
+
+test("beats: each story is held just long enough that the cut after it lands on a beat, never trimmed", () => {
+  const beat = { period: 0.5, phase: 0.1 }, near = (a, b) => Math.abs(a - b) < 1e-9; // 7.23 s is 217 frames at 30 fps
+  const clips = [{ len: 2, bumper: true }, { len: 7.23 }, { len: 1.6, bumper: true }, { len: 4 }, { len: 3, bumper: true }];
+  assert.ok(near(onBeats(clips, beat), 18.6), "the whole bulletin's length");
+  [0, 2, 9.6, 11.2, 15.6].forEach((at, i) => assert.ok(near(clips[i].at, at), `clip ${i} at ${clips[i].at}, not ${at}`));
+  assert.ok(near(clips[1].pad, 11 / 30) && near(clips[3].pad, 0.4), "the stories are held (in whole frames), not trimmed");
+  assert.ok(clips.filter((c) => c.bumper).every((c) => !c.pad), "the sting, wipes and end card keep their length");
+  assert.ok(near(onBeats(clips, null), 535 / 30), "no beat found: the plain length, in whole frames");
+  assert.ok(clips.every((c) => !c.pad));
+});
+
+test("beats in real music: a kick drum under steady chords, like the bulletin's own bed", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const file = `/tmp/dv-beat-${process.pid}.wav`;
+  try {
+    for (const [period, phase] of [[0.5, 0], [0.6, 0.2], [0.42, 0.31]]) {
+      execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-f", "lavfi", "-i", `aevalsrc='0.07*sin(2*PI*130.81*t)+0.05*sin(2*PI*196*t)+0.035*sin(2*PI*329.63*t)+0.06*sin(2*PI*60*t)*exp(-8*mod(t-${phase}+100*${period},${period}))':d=20:s=48000`, file]);
+      const b = await beatOf(file);
+      assert.ok(Math.abs(b.period - period) <= 0.011, `period ${b.period} for ${period}`);
+      assert.ok(Math.abs(b.phase - phase) <= 0.021, `phase ${b.phase} for ${phase}`);
+    }
+  } finally { fs.rmSync(file, { force: true }); }
 });

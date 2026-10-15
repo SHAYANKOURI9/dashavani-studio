@@ -832,6 +832,43 @@ async function bumperAudio() {
     "-af", "lowpass=f=1400,aformat=channel_layouts=stereo", bed]);
   return { whoosh, bed };
 }
+// The music's beat, found in the music itself (no librosa needed): loudness every 10 ms, the rise in loudness as
+// "something hit", the gap between hits that repeats most (60 to 200 beats a minute), then the offset where hits land.
+// beatOf listens to the bass only (below ~100 Hz, where kick drums are): steady chords above it would drown the pulse.
+export function findBeat(samples, rate) {
+  const hop = Math.round(rate / 100), energy = [];
+  for (let i = 0; i + hop <= samples.length; i += hop) { let e = 0; for (let k = i; k < i + hop; k++) e += samples[k] * samples[k]; energy.push(e); }
+  const hit = energy.map((e, i) => Math.max(0, e - (energy[i - 1] ?? e)));
+  const score = (lag) => { let s = 0; for (let i = lag; i < hit.length; i++) s += hit[i] * hit[i - lag]; return s / (hit.length - lag); };
+  const scores = Array.from({ length: 71 }, (_, k) => score(30 + k)), best = Math.max(...scores);
+  if (!(best > 0)) return null; // silence: no beat
+  const lag = 30 + scores.findIndex((x) => x >= best * 0.9); // the shortest gap that repeats almost as strongly (not its double)
+  const onGrid = (p) => { let s = 0; for (let i = p; i < hit.length; i += lag) s += hit[i]; return s; };
+  let phase = 0;
+  for (let p = 1; p < lag; p++) if (onGrid(p) > onGrid(phase)) phase = p;
+  return { period: lag / 100, phase: phase / 100 };
+}
+export async function beatOf(file) {
+  const { stdout } = await sh("ffmpeg", ["-loglevel", "error", "-i", file, "-t", "30", "-ac", "1", "-af", "lowpass=f=100,lowpass=f=100,lowpass=f=100", "-ar", "8000", "-f", "f32le", "-"], { encoding: "buffer", maxBuffer: 64 << 20 });
+  return findBeat(new Float32Array(stdout.buffer, stdout.byteOffset, stdout.length >> 2), 8000);
+}
+// Lays the clips end to end (sets each one's .at) and returns the total length, in whole video frames (the joined video
+// is 30 fps, so a clip lasts a whole number of frames). With a beat, each story is held on its last frame (.pad) just
+// long enough that the cut after it falls on a beat (to the nearest frame); nothing is ever trimmed.
+export function onBeats(clips, beat, fps = 30) {
+  const frames = (x) => Math.round(x * fps);
+  let n = 0; // frames so far
+  clips.forEach((c, i) => {
+    c.at = n / fps;
+    n += frames(c.len);
+    const next = clips[i + 1];
+    c.pad = beat && !c.bumper && next?.bumper ? frames(beat.phase + Math.ceil((n / fps - beat.phase - 1e-6) / beat.period) * beat.period) - n : 0;
+    n += c.pad;
+    c.pad /= fps;
+  });
+  return n / fps;
+}
+
 // Joins stories with the sting first, a wipe between stories, the end card last and one music bed under all of it.
 // segments: [{ file, start, len }] — the part of each story video to use. The music is up over the bumpers, down under the stories.
 export async function stitch(segments, vertical, out) {
@@ -840,18 +877,18 @@ export async function stitch(segments, vertical, out) {
   const clips = [{ file: open, len: BUMPER.open, bumper: true }];
   segments.forEach((seg, i) => { if (i) clips.push({ file: wipe, len: BUMPER.wipe, bumper: true }); clips.push(seg); });
   clips.push({ file: close, len: BUMPER.close, bumper: true });
-  let t = 0;
-  for (const c of clips) { c.at = t; t += c.len; }
-  const T = t, stories = clips.filter((c) => !c.bumper), hits = [0, ...clips.filter((c) => c.file === wipe).map((c) => c.at)]; // a whoosh at the sting and each wipe
+  // Bulletins (several stories) cut on the music's beat; a single story's video keeps its own timing.
+  const T = onBeats(clips, segments.length > 1 ? await beatOf(bed).catch(() => null) : null), stories = clips.filter((c) => !c.bumper), hits = [0, ...clips.filter((c) => c.file === wipe).map((c) => c.at)]; // a whoosh at the sting and each wipe
   const inputs = clips.flatMap((c) => [...(c.start ? ["-ss", String(c.start)] : []), "-t", String(c.len), "-i", c.file]);
   const n = clips.length, ms = (x) => Math.round(x * 1000);
   const graph = [
-    clips.map((_, i) => `[${i}:v]fps=30,setsar=1,setpts=PTS-STARTPTS[v${i}]`).join(";"),
+    // Exactly the planned frames per clip (held on its last frame, then cut), so every cut is where the timeline says.
+    clips.map((c, i) => `[${i}:v]fps=30,setsar=1,setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${c.pad + 1},trim=end_frame=${Math.round((c.len + c.pad) * 30)}[v${i}]`).join(";"),
     `${clips.map((_, i) => `[v${i}]`).join("")}concat=n=${n}:v=1:a=0[v]`,
     ...stories.map((c, k) => `[${clips.indexOf(c)}:a]aresample=48000,asetpts=PTS-STARTPTS,adelay=${ms(c.at)}|${ms(c.at)},apad=whole_dur=${T}[s${k}]`),
     `[${n}:a]asplit=${hits.length}${hits.map((_, k) => `[wh${k}]`).join("")}`,
     ...hits.map((at, k) => `[wh${k}]adelay=${ms(at)}|${ms(at)},apad=whole_dur=${T}[w${k}]`),
-    `[${n + 1}:a]atrim=0:${T},volume='if(${stories.map((c) => `between(t,${c.at},${c.at + c.len})`).join("+")},0.22,1)':eval=frame,afade=t=in:d=0.3,afade=t=out:st=${T - 1.2}:d=1.2[bed]`,
+    `[${n + 1}:a]atrim=0:${T},volume='if(${stories.map((c) => `between(t,${c.at},${c.at + c.len + c.pad})`).join("+")},0.22,1)':eval=frame,afade=t=in:d=0.3,afade=t=out:st=${T - 1.2}:d=1.2[bed]`,
     `${stories.map((_, k) => `[s${k}]`).join("")}${hits.map((_, k) => `[w${k}]`).join("")}[bed]amix=inputs=${stories.length + hits.length + 1}:normalize=0:duration=first[a]`,
   ];
   await sh("ffmpeg", ["-loglevel", "error", "-y", ...inputs, "-i", whoosh, "-stream_loop", "-1", "-i", bed, "-filter_complex", graph.join(";"),
