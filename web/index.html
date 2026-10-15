@@ -216,6 +216,10 @@
   .seg input:focus-visible + label { outline: 2px solid var(--dv-accent-text); outline-offset: -2px; } /* inside: the scrolling row clips outside */
   .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
   .err { background: rgba(255, 107, 87, .12); border: 1px solid var(--dv-error); color: var(--dv-error); padding: 13px 16px; margin-top: 18px; border-radius: var(--dv-r-field); }
+  .aj-media { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 10px; }
+  .aj-media li { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .aj-media img { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; }
+  .aj-media input[type=number] { width: 84px; }
   .live-script { border: 1px solid var(--dv-line-hi); padding: 16px 18px; margin-top: 18px; border-radius: var(--dv-r-field); }
   .live-script h3 { margin: 0 0 8px; }
   .live-script p { margin: 0; white-space: pre-wrap; line-height: 1.6; }

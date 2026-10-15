@@ -288,6 +288,24 @@ const ACTIONS = {
   },
   // Subtitles changed after the final: the page is set again and a new final made. The presenter comes from
   // the cache, so only new translations cost anything.
+  // At draft review, without a new voice (no paid step, only the page and draft are made again): the words on screen
+  // (script: category, headline, standfirst, ticker; not the spoken narration) and when each photo or clip shows
+  // (at: { file: seconds }) or which are left out (off: [file]).
+  "adjust": (job, body) => {
+    if (job.status !== "draft_review") return "The draft can be adjusted while it is waiting for review";
+    const SCREEN = ["category", "headline", "standfirst", "ticker"], text = body.script ?? {};
+    if (typeof text !== "object" || Array.isArray(text) || Object.keys(text).some((k) => !SCREEN.includes(k))) return "Only the category, headline, standfirst and ticker can be changed here; ask for other changes in words";
+    const parsed = P.Script.safeParse({ ...job.script, ...text });
+    if (!parsed.success) return P.scriptProblems({ ...job.script, ...text }).join("; ") || "That text can't be used";
+    const files = new Set((job.photos ?? []).map((p) => p.file)), at = body.at ?? job.cutawayAt ?? {}, off = body.off ?? job.cutawayOff ?? [];
+    if (typeof at !== "object" || Array.isArray(at) || !Array.isArray(off)) return "Those cutaway settings can't be used";
+    if (![...Object.keys(at), ...off].every((f) => files.has(f))) return "That photo or clip is not in this story";
+    if (!Object.values(at).every((t) => typeof t === "number" && t >= 0 && t <= (job.seconds ?? 0))) return "Pick a time within the story";
+    const same = SCREEN.every((k) => JSON.stringify(parsed.data[k]) === JSON.stringify(job.script[k])) && JSON.stringify(at) === JSON.stringify(job.cutawayAt ?? {}) && JSON.stringify(off) === JSON.stringify(job.cutawayOff ?? []);
+    if (same) return "Nothing changed";
+    Object.assign(job, { script: parsed.data, cutawayAt: at, cutawayOff: off, warnings: P.unsupportedNumbers(parsed.data, job.input) });
+    run(job, ["compose", "draft"], "draft_review");
+  },
   "subtitles": (job, body) => {
     if (job.status !== "done") return "Video is not finished yet";
     const problem = setSubs(job, body);

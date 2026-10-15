@@ -427,6 +427,28 @@ function picker(s) {
 }
 
 let shownId;
+// Hand adjustments at draft review: the on-screen words (the narration needs a new voice, so it isn't here) and, for
+// each photo or clip, when it shows (empty: placed automatically) and whether it shows at all.
+function adjustHtml(job) {
+  const s = job.script ?? {}, when = new Map((job.timeline?.media ?? []).map((m) => [m.file, m.t])), framed = job.timeline?.framed?.file;
+  const media = (job.photos ?? []).filter((p) => p.file !== framed), off = new Set(job.cutawayOff ?? []);
+  return `<form id="adjust" class="change" lang="${job.lang}">
+    <h3>${t("Adjust the draft")} <span class="opt">${t("no new voice: only the draft is made again")}</span></h3>
+    ${canStudio() ? `<p class="muted">${t("Edits made to this draft in Studio will be replaced.")}</p>` : ""}
+    <label for="aj-category">${t("Category")}</label><input id="aj-category" value="${esc(s.category)}" required>
+    <label for="aj-headline">${t("Headline")}</label><input id="aj-headline" value="${esc(s.headline)}" required>
+    <label for="aj-standfirst">${t("Standfirst")}</label><textarea id="aj-standfirst" rows="2">${esc(s.standfirst)}</textarea>
+    <label for="aj-ticker">${t("Ticker")} <span class="opt">${t("Press Enter between ticker items")}</span></label><textarea id="aj-ticker" rows="3">${esc((s.ticker ?? []).join("\n"))}</textarea>
+    ${media.length ? `<h4>${t("Photos and clips")}</h4><ul class="aj-media">${media.map((p, i) => {
+      const t0 = when.get(p.file), label = p.kind === "clip" ? t("Clip {n}", { n: i + 1 }) : t("Photo {n}", { n: i + 1 });
+      return `<li data-file="${esc(p.file)}" data-t="${t0 ?? ""}"><img src="/media/${job.id}/photos/${esc(p.poster ?? p.file)}" alt="${esc(label)}">
+        <label><input type="checkbox" ${off.has(p.file) ? "" : "checked"}> ${esc(label)}</label>
+        <label>${t("Starts at")} <input type="number" min="0" max="${job.seconds ?? 0}" step="any" value="${t0 ?? ""}" placeholder="${esc(t("automatic"))}" aria-label="${esc(t("{label}: starts at, in seconds", { label }))}"> ${t("s")}</label></li>`;
+    }).join("")}</ul>` : ""}
+    <div class="row"><button type="submit" class="primary">${t("Remake the draft")}</button></div>
+  </form>`;
+}
+
 // The draft as a timeline: the voice sentence by sentence, and what fills the screen when, each with its reason on hover.
 const timelineHtml = (job) => {
   const tl = job.timeline, pct = (x) => `${Math.max(0, Math.min(100, (x / tl.total) * 100)).toFixed(2)}%`;
@@ -643,6 +665,8 @@ function render(job) {
       <div class="row"><button type="submit" class="quiet">${t("Make a new final with these subtitles")}</button></div></form>` + publishHtml(job) : ""}`;
 
   if (job.timeline && job.draft && job.status !== "script_review") body += timelineHtml(job);
+  // Adjust the draft by hand, without a new voice: the words on screen and when each photo or clip shows.
+  if (job.status === "draft_review") body += adjustHtml(job);
   // Ask for a change in plain words, and the versions so far.
   if (["draft_review", "done"].includes(job.status)) body += `<form id="change" class="change">
     <h3>${t("Ask for a change")}</h3>
@@ -732,6 +756,21 @@ function render(job) {
   $("#subs-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     if (confirm(t("Make a new final with these subtitles? Earlier versions stay downloadable. Edits made in Studio will be replaced, and new translations are written by Gemini."))) act(job.id, "subtitles", pickedSubs(), e.submitter);
+  });
+  $("#adjust")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const s = job.script, script = {};
+    for (const k of ["category", "headline", "standfirst"]) if ($(`#aj-${k}`).value.trim() !== (s[k] ?? "")) script[k] = $(`#aj-${k}`).value.trim();
+    const ticker = $("#aj-ticker").value.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (JSON.stringify(ticker) !== JSON.stringify(s.ticker ?? [])) script.ticker = ticker;
+    const at = { ...job.cutawayAt }, off = [];
+    for (const row of document.querySelectorAll("#adjust [data-file]")) {
+      const f = row.dataset.file, v = row.querySelector("input[type=number]").value;
+      if (!row.querySelector("input[type=checkbox]").checked) off.push(f);
+      if (v === "") delete at[f]; // emptied: placed automatically again
+      else if (v !== row.dataset.t) at[f] = Number(v);
+    }
+    act(job.id, "adjust", { script, at, off }, e.submitter);
   });
   $("#change")?.addEventListener("click", (e) => { const c = e.target.closest(".chip-btn"); if (c) $("#f-change").value = c.textContent; });
   $("#change")?.addEventListener("submit", (e) => {

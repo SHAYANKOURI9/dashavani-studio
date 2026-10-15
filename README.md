@@ -1,6 +1,6 @@
 # Dashavani Studio
 
-Paste a verified news item → the AI writes a broadcast script → you approve it → a voice is recorded → a branded Dashavani video is drafted → you approve → an AI presenter is added → final video. Any video can be opened in **HyperFrames Studio** to edit by hand.
+Paste a verified news item → the AI writes a broadcast script → you approve it → a voice is recorded → a branded Dashavani video is drafted → you approve → an AI presenter is added → final video. Drafts can be adjusted by hand in the app (on-screen text, when each photo or clip shows), and on the computer running the studio its owner can open any video in **HyperFrames Studio**.
 
 Click any finished step in the progress rail (Script, Voice, Draft) to go back to it, and the AI picks the video template (Lead Desk, Breaking, Numbers Desk, Key Points or Quote; Photo Story is the editor's pick) from the news and an optional brief. Tick one or more languages when you file a story (English, Telugu, Hindi, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati, Odia): each language becomes its own linked story with its own script, approval and video. Tick Landscape 16:9, Shorts & Reels 9:16 or both: with both, the Shorts & Reels version is made from the landscape script once you approve it. Any story with a draft also has a "Make Shorts & Reels version" (or landscape) button. The other version reuses the approved script, voice, presenter video, photos and subtitle translations (all cached), so only its layout is rendered and it adds no voice or HeyGen cost; vertical stories use the VT-05 Shorts layout. Choose AI presenter or Voice only when you file a story or at script review. The AI presenter is the HeyGen avatar set by `HEYGEN_AVATAR_ID`; the final video sends the ElevenLabs voice to HeyGen (`POST /v3/videos`, `type: "avatar"`), which returns the avatar lip-synced to it on the studio panel blue. Choose Voice only to skip the HeyGen presenter (and its cost). In landscape the presenter panel is removed and the story text takes its width; in Shorts & Reels the story photos or a Dashavani title card fill that space. Shorts & Reels can have its own choice: when you file with both formats ticked, and on the *Make Shorts & Reels version* button. Every video has subtitles timed word by word to the ElevenLabs voice. At script review, tick the subtitle languages (any of the ten) and pick which one, if any, is shown on the video. Every ticked language becomes a selectable subtitle track inside the MP4 (the CC menu in VLC, QuickTime and phone players), a track on the in-app player, and an SRT file to upload to YouTube. Other languages than the spoken one are translated by Gemini sentence by sentence, each line shown while its sentence is spoken, and listed on the draft for checking. Reels and Shorts cannot switch tracks, so they show only the language burned into the video. A voice is recorded once per exact text and voice, so going back and approving the same script again costs nothing.
 
@@ -19,7 +19,14 @@ Windows: open a new terminal after installing FFmpeg so it is on the PATH.
 
 ## 2. Set up the project
 
-In the unzipped folder (this also installs the web frontend in `web/`):
+Get the code (or download the ZIP from GitHub and unzip it):
+
+```bash
+git clone https://github.com/SHAYANKOURI9/dashavani-studio.git
+cd dashavani-studio
+```
+
+Then, in that folder (this also installs the web frontend in `web/` and HyperFrames, the video engine):
 
 ```bash
 npm install
@@ -54,7 +61,7 @@ npm run mock
 npm start
 ```
 
-Then open **http://localhost:4000**. Stop the server with **Ctrl+C**. Both commands build the frontend first (a few seconds).
+Then open **http://localhost:4000** and **sign up: the first account on a new copy becomes its owner** (the owner approves everyone after). Stop the server with **Ctrl+C**. Both commands build the frontend first (a few seconds).
 
 **Working on the page itself:** keep `npm run mock` running, and in a second terminal run `npm run dev:web`, then open **http://localhost:5173**. Page edits reload instantly; API calls go through to the server on port 4000.
 
@@ -72,7 +79,7 @@ Keep it readable only by you: `chmod 600 .env.local` (the server warns at start 
 | `ELEVENLABS_API_KEY` | https://elevenlabs.io/app/settings/api-keys (needs text-to-speech and voices access) | English / Telugu voice |
 | `HEYGEN_API_KEY` | https://app.heygen.com/developers | The AI presenter |
 | `HEYGEN_AVATAR_ID` | Your avatar's id in HeyGen | Which avatar presents |
-| `SESSION_SECRET` (optional) | Any long random text | Signs sign-ins and encrypts the API keys other accounts save. Made for you in `data/session-secret` when unset; changing it signs everyone out |
+| `SESSION_SECRET` (optional) | Any long random text | Signs sign-ins. Made for you in `data/session-secret` when unset; changing it signs everyone out |
 | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN` (optional) | Google Cloud console: enable YouTube Data API v3, create an OAuth client of type "Desktop app"; then run `npm run youtube:auth` once and paste the line it prints | Upload to YouTube |
 
 Optional: `GEMINI_MODEL` (default `gemini-flash-latest`; the pro models need a paid Gemini plan) and `GEMINI_FALLBACK_MODEL` (default `gemini-flash-lite-latest`, used when the main model is busy or does not answer within 90 seconds; a story only stops after six tries), `ELEVENLABS_MODEL` (default `eleven_v3`, the one that speaks Telugu), and `ELEVENLABS_VOICE_EN` / `ELEVENLABS_VOICE_TE` to pick other voices. The defaults are ElevenLabs' built-in male voices Daniel (English) and Brian (Telugu), which the free plan allows. On a paid ElevenLabs plan, switch to the Indian voices: Arjun English `hEVeuEwuN5rfDgwQ85v8` and Arjun Telugu `614hXxJLzZgeC6BDovkb`. The ElevenLabs free plan does not allow commercial use, so upgrade before publishing. The Rundown shows the voice characters left this month: ElevenLabs' own numbers if the key has the "User: Read" permission, otherwise what this app has sent, against `ELEVENLABS_MONTHLY_CHARS` (default 10000). Each story shows what it used (Gemini tokens, ElevenLabs characters, HeyGen seconds) and its cost in rupees, and the Rundown shows this month's spend by service. The rupee figures use estimated paid-plan rates (`GEMINI_INR_PER_1M_INPUT_TOKENS`, `GEMINI_INR_PER_1M_OUTPUT_TOKENS`, `ELEVENLABS_INR_PER_1K_CHARS`, `HEYGEN_INR_PER_MINUTE`); set your plan's real rates in `.env.local`. Cached voices and presenters add nothing.
@@ -94,7 +101,7 @@ The quick-tunnel address changes every time you start it. For a fixed address on
 `../dashavani-backups/dashavani-data-<date>.zip`, readable only by you (it holds the accounts file and the server secret).
 
 To restore: stop the server, move the current `data/` aside, then `unzip ../dashavani-backups/<file>.zip` in this
-folder and `npm start`. Sign-ins and saved keys keep working because the zip includes `data/session-secret`
+folder and `npm start`. Sign-ins keep working because the zip includes `data/session-secret`
 (if you set `SESSION_SECRET` in `.env.local` instead, keep the same value).
 
 ## 5. Using it
@@ -102,9 +109,25 @@ folder and `npm start`. Sign-ins and saved keys keep working because the zip inc
 0. **Pick a verified story** from the *Verified inbox* (latest Press Information Bureau releases), or paste one yourself. *Use this story* loads the release in your chosen language when PIB published it in that language, and the story keeps a link to the original.
 1. **File a story.** Paste the news, optionally add a brief ("make it breaking", "focus on the rate"), and pick one or more languages.
 2. **Script review.** Check every field. Switch the template if you like. Red warnings mean a number in the script isn't in your source text.
-3. **Draft.** Listen to the voice, watch the draft, then **Approve**, **Edit in Studio**, or go back to the voice or the script.
-   Back at **Voice**, change the narration and **Record the voice again**, or **Keep this voice and make the draft**.
-4. **Final.** **Edit in Studio**, then **Re-render** makes v2, v3 and so on. **← Back to draft** is also available.
+3. **Draft.** Listen to the voice, watch the draft, then **Approve**, adjust it, or go back to the voice or the script.
+   - **Adjust the draft** (anyone, from any device): change the category, headline, standfirst and ticker, and for each photo or clip set when it starts or leave it out. **Remake the draft** redraws it with the same voice, so it costs nothing.
+   - **Ask for a change** in plain words for anything else ("use the Breaking template", "make it voice only").
+   - Back at **Voice**, change the narration and **Record the voice again**, or **Keep this voice and make the draft**.
+4. **Final.** **Re-render** makes v2, v3 and so on. **← Back to draft** is also available.
+
+### HyperFrames Studio (hand editing, on the studio's own computer)
+
+**Edit in Studio** opens the video's HyperFrames project in HyperFrames Studio for
+frame-by-frame editing (layout, timing, animation). It is installed with `npm install`; nothing else to set up.
+
+- **Who sees the button:** the owner, using the studio at `localhost` on the computer it runs on. Anyone who clones
+  this repo and runs it is the owner of their own copy, so it works for them there.
+- **Why not online:** Studio is a local editing tool. It writes the project's files directly and has no sign-in of its
+  own, so it runs on that computer only (port 3002) and is never reachable through `npm run online`. People using the
+  studio online adjust drafts in the app instead (above), where every change goes through their sign-in.
+- **After editing in Studio,** come back and press **Approve** (or **Re-render** on a final): the next render uses
+  your edits. Going back to the voice or script, changing subtitles or adjusting the draft remakes the page, which
+  replaces Studio edits.
 
 Add `?still` to the URL to turn off 3D motion, for slow machines or screenshots.
 
