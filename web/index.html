@@ -216,6 +216,12 @@
   .seg input:focus-visible + label { outline: 2px solid var(--dv-accent-text); outline-offset: -2px; } /* inside: the scrolling row clips outside */
   .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
   .err { background: rgba(255, 107, 87, .12); border: 1px solid var(--dv-error); color: var(--dv-error); padding: 13px 16px; margin-top: 18px; border-radius: var(--dv-r-field); }
+  .live-script { border: 1px solid var(--dv-line-hi); padding: 16px 18px; margin-top: 18px; border-radius: var(--dv-r-field); }
+  .live-script h3 { margin: 0 0 8px; }
+  .live-script p { margin: 0; white-space: pre-wrap; line-height: 1.6; }
+  .live-script .caret { display: inline-block; width: .55em; height: 1.1em; margin-left: 2px; vertical-align: text-bottom; background: var(--dv-accent-text); animation: caret 1s steps(1) infinite; }
+  @keyframes caret { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .live-script .caret { animation: none; } }
   .warn { border: 1px solid #f0b43c; color: #f0b43c; background: rgba(240, 180, 60, .08); padding: 13px 16px; margin-top: 18px; border-radius: var(--dv-r-field); }
 
   /* verified inbox */

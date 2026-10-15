@@ -564,7 +564,7 @@ async function route(req, res, url, parts, json, user) {
     if (req.method === "GET" && parts.length === 3) {
       // The same story in its other languages (filed together, linked by group).
       const siblings = job.group ? allJobs().filter((o) => o.group === job.group && o.id !== job.id).map(({ id, lang, status, format }) => ({ id, lang, status, format: format ?? "landscape" })) : [];
-      return json(200, { ...job, ...(job.status === "queued" && queue.ahead(job.id) > 0 && { ahead: queue.ahead(job.id) }), back: P.backTargets(job), siblings, review: P.reviewReasons(job), timeline: P.timelineFor(job), ...(job.status === "script_review" && job.script && { scriptProblems: [...P.scriptProblems(P.dropUnused(job.script)), ...P.scriptMismatches(P.dropUnused(job.script), job.lang)] }) });
+      return json(200, { ...job, ...(job.status === "queued" && queue.ahead(job.id) > 0 && { ahead: queue.ahead(job.id) }), ...(job.status === "script" && P.writing.has(job.id) && { writing: P.writing.get(job.id) }), back: P.backTargets(job), siblings, review: P.reviewReasons(job), timeline: P.timelineFor(job), ...(job.status === "script_review" && job.script && { scriptProblems: [...P.scriptProblems(P.dropUnused(job.script)), ...P.scriptMismatches(P.dropUnused(job.script), job.lang)] }) });
     }
     // Photos can change while the script is under review; the cutaways are built when the draft is made.
     // English meaning of the script as it stands in the review form (not saved as the script).

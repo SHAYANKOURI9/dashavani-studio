@@ -46,7 +46,7 @@ function seedBulletin(createdBy) {
 }
 
 before(async () => {
-  server = spawn(process.execPath, ["server.mjs", "--mock"], { env: { ...process.env, DATA_DIR: DATA, PORT: String(PORT), SMTP_HOST: "", MONTHLY_CAP_INR: "100" }, stdio: ["ignore", "pipe", "pipe"] });
+  server = spawn(process.execPath, ["server.mjs", "--mock"], { env: { ...process.env, DATA_DIR: DATA, PORT: String(PORT), SMTP_HOST: "", MONTHLY_CAP_INR: "100", MOCK_TYPE_MS: "60" }, stdio: ["ignore", "pipe", "pipe"] });
   server.stdout.on("data", (d) => (out += d));
   server.stderr.on("data", (d) => (out += d));
   await new Promise((ok, no) => { const t = setInterval(() => { if (out.includes("Dashavani Studio on")) { clearInterval(t); ok(); } }, 50); setTimeout(() => no(new Error(`server did not start:\n${out}`)), 15000); });
@@ -145,6 +145,20 @@ test("sign-in, sign-out everywhere, change and reset of a password", async () =>
   assert.equal((await temp.req("POST", "/api/me/password", { current: password, password: "editorpass1" })).status, 200);
   assert.equal((await temp.req("GET", "/api/jobs")).status, 200);
   Object.assign(b, { cookie: temp.cookie });
+});
+
+test("while the script is being written, the story shows it growing; afterwards nothing extra is kept", async () => {
+  const id = (await owner.req("POST", "/api/jobs", { input: "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen.", lang: "en" })).body.id;
+  const seen = new Set();
+  for (let i = 0; i < 400; i++) {
+    const j = (await owner.req("GET", `/api/jobs/${id}`)).body;
+    if (j.writing) seen.add(j.writing.narration);
+    if (j.status === "script_review") { assert.equal("writing" in j, false); break; }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  assert.ok(seen.size >= 2, `the narration grew in steps (saw ${seen.size})`);
+  assert.ok([...seen].every((n) => "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen.".startsWith(n)));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(DATA, "jobs", `${id}.json`), "utf8")).writing, undefined, "never saved");
 });
 
 test("an unexpected error says so plainly, without file paths or tool output", async () => {

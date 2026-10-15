@@ -136,7 +136,8 @@ The editor's brief wins when it names a template or a treatment.
 // One Gemini call that must answer JSON in the given zod shape; its tokens go on the story's script cost.
 // The free plan is often busy (503/429) or hangs, so each try has a time limit, failures are retried,
 // and after two tries on the main model it alternates with a lighter fallback model.
-export async function gemini(job, system, prompt, shape, what) {
+// onText(soFar): when given, the reply is streamed and onText sees the text each time a piece arrives.
+export async function gemini(job, system, prompt, shape, what, onText) {
   const main = process.env.GEMINI_MODEL || "gemini-flash-latest", fallback = process.env.GEMINI_FALLBACK_MODEL || "gemini-flash-lite-latest";
   const plan = [main, main, fallback, main, fallback, fallback];
   const wait = Number(process.env.GEMINI_RETRY_MS ?? 4000);
@@ -145,7 +146,7 @@ export async function gemini(job, system, prompt, shape, what) {
   for (const [attempt, model] of plan.entries()) {
     if (attempt) await new Promise((r) => setTimeout(r, attempt * wait));
     try {
-      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:${onText ? "streamGenerateContent?alt=sse" : "generateContent"}`, {
         method: "POST",
         signal: AbortSignal.timeout(90_000),
         headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
@@ -164,7 +165,7 @@ export async function gemini(job, system, prompt, shape, what) {
   }
   if (!res || res.status === 503 || res.status === 429) throw new Error(`Gemini is busy or not answering (${last}). Press "Retry this step" in a minute`);
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 400)}`);
-  const data = await res.json();
+  const data = onText ? await readStream(res, onText) : await res.json();
   const cand = data.candidates?.[0];
   if (!cand?.content) throw new Error(`Gemini returned no ${what} (${data.promptFeedback?.blockReason ?? cand?.finishReason ?? "no reason given"})`);
   const u = data.usageMetadata ?? {};
@@ -178,6 +179,37 @@ export async function gemini(job, system, prompt, shape, what) {
 const BACK = `Translate this news script into plain English for an editor who will check its meaning against the source.
 Translate literally and faithfully: keep every name, number and claim exactly; add nothing; do not improve the wording.`;
 const BackShape = z.object({ headline: z.string(), standfirst: z.string(), narration: z.string(), ticker: z.array(z.string()), quote_text: z.string() });
+// A streamed reply (server-sent events, one JSON piece per "data:" line) put back together as one reply.
+async function readStream(res, onText) {
+  let text = "", buf = "", last = {};
+  const decoder = new TextDecoder();
+  for await (const chunk of res.body) {
+    buf += decoder.decode(chunk, { stream: true });
+    const lines = buf.split(/\r?\n/);
+    buf = lines.pop();
+    for (const line of lines.filter((l) => l.startsWith("data:"))) {
+      const piece = JSON.parse(line.slice(5));
+      text += piece.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+      last = { ...last, ...piece };
+      onText(text);
+    }
+  }
+  const cand = last.candidates?.[0];
+  return { ...last, candidates: cand && [{ ...cand, content: text ? { parts: [{ text }] } : cand.content }] };
+}
+
+// The headline and narration so far, read from a script reply that is still arriving (unfinished JSON).
+export function partialScript(json) {
+  const field = (k) => {
+    const m = new RegExp(`"${k}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`).exec(json);
+    if (!m) return "";
+    try { return JSON.parse(`"${m[1].replace(/(?<!\\)((?:\\\\)*)\\(u[0-9a-fA-F]{0,3})?$/, "$1")}"`); } catch { return ""; } // drop an escape cut in half
+  };
+  return { headline: field("headline"), narration: field("narration") };
+}
+// Scripts being written now, by job id: what the story page shows while it waits. In memory only, never saved.
+export const writing = new Map();
+
 export async function backTranslate(job, script = job.script) {
   if (job.lang === "en" || !script) return null;
   const s = { headline: script.headline ?? "", standfirst: script.standfirst ?? "", narration: script.narration ?? "", ticker: script.ticker ?? [], quote_text: script.quote_text ?? "" };
@@ -271,9 +303,17 @@ export async function writeScript(job) {
       category: "NEWS", headline: first.slice(0, 90), standfirst: second.slice(0, 120), dateline_city: "", narration: job.input.slice(0, 600), ticker: [],
       figure_value: template === "numbers" ? figure.slice(0, 14) : "", figure_label: template === "numbers" ? "KEY FIGURE" : "", figure_context: "", source_name: "", quote_text: "", quote_by: "",
     };
+    // Shown arriving a few words at a time, as a real one does (MOCK_TYPE_MS=0 skips it).
+    const words = job.script.narration.split(" "), step = Math.ceil(words.length / 12), ms = Number(process.env.MOCK_TYPE_MS ?? 150);
+    for (let n = step; ms && n < words.length + step; n += step) {
+      writing.set(job.id, { headline: job.script.headline, narration: words.slice(0, n).join(" ") });
+      await new Promise((r) => setTimeout(r, ms));
+    }
+    writing.delete(job.id);
   } else {
     const ask = `Language: ${LANGS[job.lang].name}\nEditor's brief: ${job.brief || "(none)"}\n\nSource text:\n${job.input}`;
-    const first = fixMixedScript(await gemini(job, SYSTEM, ask, ScriptShape, "script"), job.lang);
+    const first = fixMixedScript(await gemini(job, SYSTEM, ask, ScriptShape, "script", (text) => writing.set(job.id, partialScript(text)))
+      .finally(() => writing.delete(job.id)), job.lang);
     const check = (s) => [...scriptProblems(s), ...scriptMismatches(s, job.lang)];
     const fixed = await fixScript(first, (problems) => gemini(job, SYSTEM, `${ask}\n\nYour last script broke these rules. Fix only these and keep everything else as it was:\n- ${problems.join("\n- ")}\n\nYour last script:\n${JSON.stringify(first)}`, ScriptShape, "script").then((s) => fixMixedScript(s, job.lang)), check);
     job.script = fixed.script; // anything still wrong is listed at review (the server checks the saved script)
