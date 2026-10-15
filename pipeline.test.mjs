@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { z } from "zod";
 import { lintCss } from "./designer.mjs";
-import { unsupportedNumbers, backTargets, Script, fillVariables, templateFor, savePhoto, cutawayMarkup, slateMarkup, projectDir, toWords, captionLines, captionMarkup, addCost, monthSpend, spendByAccount, voiceFor, useKeys, partialScript, sentences, translatedLines, subtitlePlan, cueFiles, gemini, reviewReasons, cutawaySchedule, PublishPack, downloadArgs } from "./pipeline.mjs";
+import { unsupportedNumbers, backTargets, Script, fillVariables, templateFor, savePhoto, cutawayMarkup, slateMarkup, projectDir, toWords, captionLines, captionMarkup, addCost, monthSpend, spendByAccount, voiceFor, useKeys, partialScript, sceneCuts, clipStart, sentences, translatedLines, subtitlePlan, cueFiles, gemini, reviewReasons, cutawaySchedule, PublishPack, downloadArgs } from "./pipeline.mjs";
 
 test("fills variables in both single-quoted and Studio-saved templates", () => {
   const single = `<html data-composition-variables='[{"id":"headline","default":"Old"}]'>`;
@@ -371,4 +371,27 @@ test("gemini streams: pieces reach onText as they arrive, and the whole reply is
     assert.match(urls[0], /:streamGenerateContent\?alt=sse$/);
     assert.equal(job.cost.script.units, 7, "the cost comes from the last piece");
   } finally { globalThis.fetch = real; }
+});
+
+test("shot changes: read from ffmpeg's report, and a cutaway starts on one that leaves it enough to show", async () => {
+  const report = "[Parsed_showinfo_1 @ 0x1] n:   0 pts:  48000 pts_time:2.0 duration:512\n[Parsed_showinfo_1 @ 0x1] n:   1 pts: 112640 pts_time:4.4 duration:512\nframe= 3 fps=0.0";
+  assert.deepEqual(sceneCuts(report), [2, 4.4]);
+  assert.deepEqual(sceneCuts("nothing here"), []);
+  const clip = { kind: "clip", seconds: 8, cuts: [0.1, 2, 4.4, 7.5] };
+  assert.equal(clipStart(clip, 3), 2, "the first clean cut with 3 s left after it (0.1 s is the opening frame)");
+  assert.equal(clipStart(clip, 5), 2);
+  assert.equal(clipStart(clip, 6.5), 0, "no cut leaves enough: from the start");
+  assert.equal(clipStart({ kind: "clip", seconds: 8 }, 3), 0, "clips saved before this have no cuts");
+  // A real clip: 2.5 s of red, then 2.5 s of blue. ffmpeg finds the change at 2.5 s.
+  const { savePhoto, projectDir } = await import("./pipeline.mjs");
+  const { execFileSync } = await import("node:child_process");
+  const job = { id: `test-cuts-${process.pid}` }, src = `/tmp/dv-cuts-${process.pid}.mp4`;
+  execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=red:s=320x240:d=2.5:r=25", "-f", "lavfi", "-i", "color=blue:s=320x240:d=2.5:r=25", "-filter_complex", "[0][1]concat=n=2:v=1", "-pix_fmt", "yuv420p", src]);
+  try {
+    await savePhoto(job, fs.readFileSync(src), "video/mp4", "Uploaded");
+    assert.equal(job.photos[0].cuts.length, 1);
+    assert.ok(Math.abs(job.photos[0].cuts[0] - 2.5) < 0.1, `cut at ${job.photos[0].cuts[0]}`);
+    const [markup] = cutawayMarkup(job.photos.map((p) => ({ ...p, t: 4, show: 2 })), { category: "NEWS", headline: "H", vertical: false }).split("<!--script-->");
+    assert.match(markup, new RegExp(`data-playback-start="${job.photos[0].cuts[0]}"`), "the cutaway plays from the clean cut");
+  } finally { fs.rmSync(projectDir(job), { recursive: true, force: true }); fs.rmSync(src, { force: true }); }
 });

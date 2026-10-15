@@ -926,13 +926,21 @@ export async function savePhoto(job, bytes, type, from) {
     await sh("ffmpeg", ["-loglevel", "error", "-y", "-i", src, "-an", "-vf", "scale=-2:'min(1080,ih)',format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-movflags", "+faststart", path.join(dir, `${id}.mp4`)]);
     await sh("ffmpeg", ["-loglevel", "error", "-y", "-ss", "0.5", "-i", path.join(dir, `${id}.mp4`), "-frames:v", "1", "-q:v", "3", path.join(dir, `${id}.jpg`)]);
     const { stdout } = await sh("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path.join(dir, `${id}.mp4`)]);
-    job.photos = [...(job.photos ?? []), { file: `${id}.mp4`, poster: `${id}.jpg`, kind: "clip", seconds: Math.round(Number(stdout) * 10) / 10, from }];
+    // Shot changes (scene score over 0.3), so a cutaway can start on a clean cut instead of mid-shot.
+    const { stderr } = await sh("ffmpeg", ["-hide_banner", "-i", path.join(dir, `${id}.mp4`), "-vf", "select='gt(scene,0.3)',showinfo", "-an", "-f", "null", "-"], { maxBuffer: 16 << 20 });
+    job.photos = [...(job.photos ?? []), { file: `${id}.mp4`, poster: `${id}.jpg`, kind: "clip", seconds: Math.round(Number(stdout) * 10) / 10, cuts: sceneCuts(stderr), from }];
   } catch {
     for (const f of [`${id}.mp4`, `${id}.jpg`]) fs.rmSync(path.join(dir, f), { force: true }); // ffmpeg may have started writing them
     throw new Error("That clip could not be read; try an MP4");
   }
   finally { fs.rmSync(src, { force: true }); }
 }
+
+// Times of the shot changes in ffmpeg's showinfo report (one line per frame the scene filter picked).
+export const sceneCuts = (report) => [...report.matchAll(/pts_time:([\d.]+)/g)].map((m) => Math.round(Number(m[1]) * 100) / 100);
+// Where a clip starts playing in its cutaway: the first shot change (past the opening frame) that leaves `show`
+// seconds of clip after it, else the beginning.
+export const clipStart = (clip, show) => clip.cuts?.find((c) => c > 0.2 && c + show <= clip.seconds) ?? 0;
 
 // When each cutaway shows: spaced through the story, each moved to the nearest sentence start (a pause in the voice)
 // if one is close and it doesn't run into the previous cutaway. A clip shows no longer than it runs.
@@ -1050,7 +1058,7 @@ export function cutawayMarkup(items, { category, headline, vertical }) {
   return `
       <div id="cutaways" class="${vertical ? "v" : "h"}">
         ${items.map((p) => p.kind === "clip"
-          ? `<div class="cut" data-t="${p.t}" data-show="${p.show}"><img class="bg" src="assets/photos/${p.poster}" alt=""><video class="fg" src="assets/photos/${p.file}" data-start="${p.t}" data-duration="${p.show}" muted playsinline></video></div>`
+          ? `<div class="cut" data-t="${p.t}" data-show="${p.show}"><img class="bg" src="assets/photos/${p.poster}" alt=""><video class="fg" src="assets/photos/${p.file}" data-start="${p.t}" data-duration="${p.show}" data-playback-start="${clipStart(p, p.show)}" muted playsinline></video></div>`
           : `<div class="cut" data-t="${p.t}" data-show="${p.show}"><img class="bg" src="assets/photos/${p.file}" alt=""><img class="fg zoom" src="assets/photos/${p.file}" alt=""></div>`).join("")}
         <div class="cut-label"><span class="cat">${esc(category)}</span><span class="hl">${esc(headline)}</span></div>
       </div>
