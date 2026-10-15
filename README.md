@@ -1,8 +1,50 @@
 # Dashavani Studio
 
+![One Press Information Bureau story as finished Dashavani videos: landscape in English, Telugu, Tamil and Bengali, and Shorts & Reels in Telugu, Kannada and English](docs/images/hero.webp)
+
+*One verified story, finished in several languages and both shapes. Every frame above is from a video the studio made.*
+
 Paste a verified news item → the AI writes a broadcast script → you approve it → a voice is recorded → a branded Dashavani video is drafted → you approve → an AI presenter is added → final video. Drafts can be adjusted by hand in the app (on-screen text, when each photo or clip shows), and on the computer running the studio its owner can open any video in **HyperFrames Studio**.
 
 Click any finished step in the progress rail (Script, Voice, Draft) to go back to it, and the AI picks the video template (Lead Desk, Breaking, Numbers Desk, Key Points or Quote; Photo Story is the editor's pick) from the news and an optional brief. Tick one or more languages when you file a story (English, Telugu, Hindi, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati, Odia): each language becomes its own linked story with its own script, approval and video. Tick Landscape 16:9, Shorts & Reels 9:16 or both: with both, the Shorts & Reels version is made from the landscape script once you approve it. Any story with a draft also has a "Make Shorts & Reels version" (or landscape) button. The other version reuses the approved script, voice, presenter video, photos and subtitle translations (all cached), so only its layout is rendered and it adds no voice or HeyGen cost; vertical stories use the VT-05 Shorts layout. Choose AI presenter or Voice only when you file a story or at script review. The AI presenter is the HeyGen avatar set by `HEYGEN_AVATAR_ID`; the final video sends the ElevenLabs voice to HeyGen (`POST /v3/videos`, `type: "avatar"`), which returns the avatar lip-synced to it on the studio panel blue. Choose Voice only to skip the HeyGen presenter (and its cost). In landscape the presenter panel is removed and the story text takes its width; in Shorts & Reels the story photos or a Dashavani title card fill that space. Shorts & Reels can have its own choice: when you file with both formats ticked, and on the *Make Shorts & Reels version* button. Every video has subtitles timed word by word to the ElevenLabs voice. At script review, tick the subtitle languages (any of the ten) and pick which one, if any, is shown on the video. Every ticked language becomes a selectable subtitle track inside the MP4 (the CC menu in VLC, QuickTime and phone players), a track on the in-app player, and an SRT file to upload to YouTube. Other languages than the spoken one are translated by Gemini sentence by sentence, each line shown while its sentence is spoken, and listed on the draft for checking. Reels and Shorts cannot switch tracks, so they show only the language burned into the video. A voice is recorded once per exact text and voice, so going back and approving the same script again costs nothing.
+
+
+## A look inside
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/intro.webp" alt="The public intro page: 'Verified News, On Air', with a finished video playing and the studio's numbers"></td>
+<td width="50%"><img src="docs/images/home.webp" alt="The studio home: 'One verified story, ten languages', with File a story and a strip of finished videos"></td>
+</tr>
+<tr>
+<td><b>Intro.</b> The public front page, showing the finished videos you choose.</td>
+<td><b>Studio.</b> File a story from the verified PIB wire or paste your own.</td>
+</tr>
+<tr>
+<td><img src="docs/images/live-script.webp" alt="A story page while the script is written: the headline and narration appearing word by word with a cursor"></td>
+<td><img src="docs/images/script-review.webp" alt="Script review: six video templates with the AI's pick marked, then the headline, category and standfirst to edit"></td>
+</tr>
+<tr>
+<td><b>Script, live.</b> The script appears as the AI writes it.</td>
+<td><b>Script review.</b> Pick the template and check every field; numbers missing from the source are flagged.</td>
+</tr>
+<tr>
+<td><img src="docs/images/draft.webp" alt="A draft video with buttons to approve it, open it in HyperFrames Studio, render Studio edits or go back"></td>
+<td><img src="docs/images/adjust.webp" alt="The Adjust the draft panel: category, headline, standfirst and ticker fields, and a Remake the draft button"></td>
+</tr>
+<tr>
+<td><b>Draft.</b> Watch it, then approve it or go back a step.</td>
+<td><b>Adjust the draft.</b> Change on-screen text and when photos appear, with no new voice.</td>
+</tr>
+<tr>
+<td><img src="docs/images/final.webp" alt="A finished Telugu video with Telugu subtitles, and the download choices: version, quality and subtitle tracks"></td>
+<td></td>
+</tr>
+<tr>
+<td><b>Final.</b> Download any version, size and subtitle tracks, or upload to YouTube.</td>
+<td></td>
+</tr>
+</table>
 
 ---
 
