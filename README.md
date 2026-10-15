@@ -159,3 +159,7 @@ Tests: `npm test`. Add shadcn components from `web/` with `npx shadcn@latest add
 - **Publishing:** a finished story gets a publish pack (YouTube title, description with the AI disclosure and source link, tags, hashtags, Instagram caption, X post) with Copy buttons, and a full-size thumbnail to download. **Upload to YouTube** sends the final, its thumbnail and every subtitle track as a **private** video, or scheduled to go public at a time you pick. YouTube allows about 10,000 API units a day; one upload with captions uses about 2,000, so roughly five uploads a day. Custom thumbnails need a verified channel.
 - **Design a new look:** describe a style change to a template; it passes a brand check (the house colours only, nothing loaded from outside, the AI label stays visible) and arrives as a draft with a preview to approve.
 
+
+## License and policies
+
+MIT, see [LICENSE](LICENSE). Taking part in this project means following the [Code of Conduct](CODE_OF_CONDUCT.md). Found a security problem? Report it privately as described in [SECURITY.md](SECURITY.md), not in a public issue.
