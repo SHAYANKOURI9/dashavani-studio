@@ -67,3 +67,31 @@ test("forgot password: a one-time link that lasts an hour, stored only as a hash
   assert.ok(users.signIn("o@example.com", "newpassword1").user);
   assert.ok(users.signIn("o@example.com", "longpassword").error, "the old password stops working");
 });
+
+test("change password needs the current one; the owner's temporary password must be changed", () => {
+  const { users } = fresh();
+  const owner = users.signUp("o@example.com", "longpassword").user;
+  const ed = users.signUp("ed@example.com", "longpassword").user;
+  users.setStatus(ed.id, "approved");
+  assert.match(users.changePassword(ed.id, "wrong-pass", "newpassword").error, /current password/);
+  assert.match(users.changePassword(ed.id, "longpassword", "short").error, /8 characters/);
+  assert.ok(users.changePassword(ed.id, "longpassword", "newpassword").user);
+  assert.ok(users.signIn("ed@example.com", "longpassword").error, "the old password stops working");
+  assert.ok(users.signIn("ed@example.com", "newpassword").user);
+  assert.match(users.tempPassword(owner.id).error, /No such/, "the owner's own password is never reset this way");
+  const { password } = users.tempPassword(ed.id);
+  assert.ok(users.signIn("ed@example.com", "newpassword").error);
+  assert.equal(users.pub(users.signIn("ed@example.com", password).user).mustChange, true);
+  users.changePassword(ed.id, password, "mine-again");
+  assert.equal(users.pub(users.find(ed.id)).mustChange, undefined, "changed: no longer forced");
+});
+
+test("an account's own voices are saved per language and checked", () => {
+  const { users } = fresh();
+  users.signUp("o@example.com", "longpassword");
+  const ed = users.signUp("ed@example.com", "longpassword").user;
+  assert.match(users.setKeys(ed.id, { ELEVENLABS_VOICE_TE: "../../x" }), /voice ID/);
+  assert.equal(users.setKeys(ed.id, { ELEVENLABS_VOICE_TE: "614hXxJLzZgeC6BDovkb" }), null);
+  assert.equal(users.keysFor(users.find(ed.id)).ELEVENLABS_VOICE_TE, "614hXxJLzZgeC6BDovkb");
+  assert.deepEqual(users.pub(users.find(ed.id)).keys, ["ELEVENLABS_VOICE_TE"]);
+});

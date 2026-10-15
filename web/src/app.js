@@ -165,7 +165,8 @@ async function showCredits() {
   $("#credits").innerHTML = `${c.source === "app" ? t("Voice: {left} of {limit} characters left this month (counted by this app)", nums) : t("Voice: {left} of {limit} characters left this month", nums)}
     <meter min="0" max="${c.limit}" value="${left}" low="${c.limit * 0.15}" optimum="${c.limit}"></meter>
     <span class="spend">${m.stories === 1 ? t("{total} this month across {n} story", spent) : t("{total} this month across {n} stories", spent)}</span>
-    <span class="parts"><span>${t("Script {amount}", { amount: rupees(m.script) })}</span><span>${t("Voice {amount}", { amount: rupees(m.voice) })}</span><span>${t("Presenter {amount}", { amount: rupees(m.presenter) })}</span></span>`;
+    <span class="parts"><span>${t("Script {amount}", { amount: rupees(m.script) })}</span><span>${t("Voice {amount}", { amount: rupees(m.voice) })}</span><span>${t("Presenter {amount}", { amount: rupees(m.presenter) })}</span></span>
+    ${u.accounts?.length > 1 ? `<span class="parts">${u.accounts.map((a) => `<span>${esc(a.email)} ${rupees(a.total)}</span>`).join("")}</span>` : ""}`;
 }
 
 let rundownFilter = "all";
@@ -295,6 +296,7 @@ let dzTimer;
 async function loadDesigns() {
   clearTimeout(dzTimer);
   const list = await api("/api/templates").catch(() => []);
+  await meReady; // approve and reject are the owner's
   for (const d of list) if (d.status === "approved") TPL[d.id] = [d.name, d.id, d.description];
   const base = $("#dz-base").value;
   $("#dz-base").innerHTML = Object.entries(TPL).map(([k, [name]]) => `<option value="${k}">${esc(name)}${k.startsWith("c-") ? ` ${t("(your look)")}` : ""}</option>`).join("");
@@ -304,7 +306,7 @@ async function loadDesigns() {
     <div><b translate="no">${esc(d.name)}</b> ${d.status === "approved" ? `<span class="ok">${t("Approved")}</span>` : d.status === "draft" ? `<span class="rv">${t("Draft")}</span>` : ""}</div>
     <div class="muted" style="font-size:14px">${d.description ? esc(d.description) : t("Asked: “{request}”", { request: esc(d.request) })}${d.description ? ` <span>${t("(from {look})", { look: esc(TPL[d.from]?.[0] ?? d.from) })}</span>` : ""}</div>
     ${d.status === "making" ? `<div class="muted">${t("Designing and checking…")}</div>` : d.status === "error" ? `<div class="err">${esc(t(d.error))}</div>` : ""}
-    <div class="row">${d.status === "draft" ? `<button type="button" class="primary" data-dz="${d.id}" data-to="approved">${t("Approve")}</button>` : ""}<button type="button" class="quiet" data-dz="${d.id}" data-to="rejected">${d.status === "approved" ? t("Remove") : t("Reject")}</button></div>
+    ${me?.role === "owner" ? `<div class="row">${d.status === "draft" ? `<button type="button" class="primary" data-dz="${d.id}" data-to="approved">${t("Approve")}</button>` : ""}<button type="button" class="quiet" data-dz="${d.id}" data-to="rejected">${d.status === "approved" ? t("Remove") : t("Reject")}</button></div>` : ""}
   </li>`).join("");
   if (list.some((d) => d.status === "making")) dzTimer = setTimeout(loadDesigns, 4000);
 }
@@ -356,7 +358,7 @@ async function show(id) {
   catch (e) { console.error("3D stage:", e); }
   $("#stage-line").textContent = job.script?.headline || t("Reading your story…");
   $("#stage-line").lang = job.lang;
-  $("#stage-state").textContent = SAY[job.status] ?? job.status;
+  $("#stage-state").textContent = job.ahead ? (job.ahead === 1 ? t("In the queue: 1 story ahead of yours") : t("In the queue: {n} stories ahead of yours", { n: job.ahead })) : SAY[job.status] ?? job.status;
   listJobs(id);
   if (BUSY.has(job.status)) timer = setTimeout(() => show(id), 2500);
 }

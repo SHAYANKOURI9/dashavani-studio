@@ -90,3 +90,18 @@ test("sign-in, sign-up and reset requests are limited per visitor", () => {
   assert.equal(hit("5.6.7.8", 3), true, "another visitor is not affected");
   assert.equal(hit("1.2.3.4", 60_001), true, "the window passes");
 });
+
+test("caps: 20 stories a day for an editor (by India's date), and the owner's monthly spend only when set", async () => {
+  const { overCap } = await import("./jobs.mjs");
+  const ed = { id: "e", role: "editor" }, owner = { id: "o", role: "owner" };
+  const day = (n, at) => Array.from({ length: n }, () => ({ createdBy: "e", createdAt: at }));
+  const now = new Date("2026-10-15T10:00:00Z");
+  assert.equal(overCap(day(19, "2026-10-15T01:00:00Z"), ed, { daily: 20 }, now), null);
+  assert.match(overCap(day(20, "2026-10-15T01:00:00Z"), ed, { daily: 20 }, now), /20 stories a day/);
+  assert.equal(overCap(day(20, "2026-10-14T18:00:00Z"), ed, { daily: 20 }, now), null, "23:30 in India yesterday doesn't count");
+  assert.equal(overCap(day(20, "2026-10-14T19:00:00Z"), ed, { daily: 20 }, now) !== null, true, "00:30 in India today does");
+  assert.equal(overCap(day(30, "2026-10-15T01:00:00Z").map((j) => ({ ...j, createdBy: "x" })), ed, { daily: 20 }, now), null, "other accounts' stories");
+  assert.equal(overCap([], owner, { daily: 20, monthCap: 0, spent: 99999 }, now), null, "no cap set");
+  assert.match(overCap([], owner, { daily: 20, monthCap: 500, spent: 500 }, now), /₹500/);
+  assert.equal(overCap(day(50, "2026-10-15T01:00:00Z").map((j) => ({ ...j, createdBy: "o" })), owner, { daily: 20, monthCap: 500, spent: 10 }, now), null, "the owner has no daily limit");
+});

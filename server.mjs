@@ -2,15 +2,15 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import * as P from "./pipeline.mjs";
 import { SOURCES, inbox, validSource } from "./sources.mjs";
 import * as D from "./designer.mjs";
 import * as Y from "./youtube.mjs";
 import { allowedHost, isLocal, rateLimit, showIntroFirst, sessionToken, sessionUser, cookieUser, isOpen, safeNext, SESSION_HOURS } from "./auth.mjs";
 import { sendMail } from "./mail.mjs";
-import { userStore, KEY_NAMES } from "./users.mjs";
-import { jobStore, showcase, showcaseMedia, visibleTo } from "./jobs.mjs";
+import { userStore, KEY_NAMES, VOICE_NAMES } from "./users.mjs";
+import { jobStore, showcase, showcaseMedia, visibleTo, overCap } from "./jobs.mjs";
 import { parseRange } from "./range.mjs";
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -25,6 +25,13 @@ const SECRET_FILE = path.join(P.DATA, "session-secret");
 if (!process.env.SESSION_SECRET && !fs.existsSync(SECRET_FILE)) { fs.mkdirSync(P.DATA, { recursive: true }); fs.writeFileSync(SECRET_FILE, randomBytes(32).toString("base64url"), { mode: 0o600 }); }
 const SECRET = process.env.SESSION_SECRET || fs.readFileSync(SECRET_FILE, "utf8").trim();
 const users = userStore(path.join(P.DATA, "users.json"), SECRET);
+// Signs an account's cookies. A new password, or signing out (which bumps session), ends all of them at once.
+const sessionKey = (u) => `${SECRET}:${u.hash}:${u.session ?? 0}`;
+// Content-Security-Policy: scripts only from this site, plus the built pages' own inline scripts (the theme switch,
+// which must run before the page draws) by their hash. Read once from web/dist, so a rebuild needs a restart (npm start does both).
+const inlineHashes = fs.existsSync(path.join(P.ROOT, "web/dist")) ? fs.readdirSync(path.join(P.ROOT, "web/dist")).filter((f) => f.endsWith(".html"))
+  .flatMap((f) => [...fs.readFileSync(path.join(P.ROOT, "web/dist", f), "utf8").matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => `'sha256-${createHash("sha256").update(m[1]).digest("base64")}'`)) : [];
+const CSP = `default-src 'self'; script-src 'self' ${inlineHashes.join(" ")}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`;
 const ownerId = () => users.list().find((u) => u.role === "owner")?.id;
 
 // Photos the source published with the story, fetched once. A failed photo never stops the story.
@@ -126,6 +133,9 @@ function translateLater(titles, lang) {
 
 // Single queue: renders are heavy, and HeyGen and ElevenLabs calls are paid — never run two at once.
 let queue = Promise.resolve();
+// Ids in the queue, in order; the one running stays first until it ends. A queued story shows how many are ahead.
+const line = [];
+const leave = (id) => line.splice(line.indexOf(id), 1);
 
 // Bulletins: several stories joined into one video (sting once, a wipe between stories, end card, one music bed).
 const BULLETINS = path.join(P.DATA, "bulletins");
@@ -135,6 +145,7 @@ const saveBulletin = (b) => fs.writeFileSync(path.join(BULLETINS, `${b.id}.json`
 function buildBulletin(b) {
   saveBulletin(b);
   const who = P.useKeys.getStore();
+  line.push(b.id);
   queue = queue.then(() => P.useKeys.run(who, async () => {
     try {
       Object.assign(b, { status: "making" }); saveBulletin(b);
@@ -147,6 +158,7 @@ function buildBulletin(b) {
       Object.assign(b, { status: "error", error: e.message });
     }
     saveBulletin(b);
+    leave(b.id);
   }));
 }
 function run(job, steps, after) {
@@ -154,6 +166,7 @@ function run(job, steps, after) {
   save(job);
   // Paid steps spend the keys of whoever asked for them, even when they run later in the queue.
   const who = P.useKeys.getStore();
+  line.push(job.id);
   queue = queue.then(() => P.useKeys.run(who, async () => {
     try {
       for (const step of steps) {
@@ -169,6 +182,7 @@ function run(job, steps, after) {
       Object.assign(job, { status: "error", error: `${job.status}: ${e.message}` });
     }
     save(job);
+    leave(job.id);
   }));
 }
 
@@ -326,9 +340,10 @@ const server = http.createServer(async (req, res) => {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "same-origin");
+  res.setHeader("Content-Security-Policy", CSP);
   // First visit: the intro, which is public. After it, the studio asks for the sign-in when a password is set.
   if (req.method === "GET" && url.pathname === "/" && showIntroFirst(url.search, req.headers.cookie, RUN)) { res.writeHead(302, { Location: "/intro" }); return res.end(); }
-  const user = (() => { const u = users.find(cookieUser(req.headers.cookie)); return u?.status === "approved" && sessionUser(req.headers.cookie, `${SECRET}:${u.hash}`) ? u : null; })();
+  const user = (() => { const u = users.find(cookieUser(req.headers.cookie)); return u?.status === "approved" && sessionUser(req.headers.cookie, sessionKey(u)) ? u : null; })();
   if (!user && !isOpen(req.method, url.pathname) && !(["GET", "HEAD"].includes(req.method) && showcaseMedia(url.pathname, load, ownerId()))) {
     // Pages go to the sign-in page and come back after it; everything else is refused.
     if (req.method === "GET" && parts[0] !== "api" && parts[0] !== "media") { res.writeHead(302, { Location: `/login?next=${encodeURIComponent(url.pathname + url.search)}` }); return res.end(); }
@@ -342,6 +357,7 @@ const visitor = (req) => (isLocal(req.headers.host) ? req.socket.remoteAddress :
 // Over the tunnel the browser talks HTTPS, so the sign-in cookie is marked Secure (never sent over plain HTTP).
 const secure = (req) => !isLocal(req.headers.host) && req.headers["x-forwarded-proto"] === "https";
 const accountLimit = rateLimit(20, 15 * 60_000);
+const actionLimit = rateLimit(120, 60_000); // per account; reads aren't limited, the page polls them
 
 async function route(req, res, url, parts, json, user) {
   // Inside a request, only stories this account may see exist; anything else is "not found".
@@ -349,9 +365,10 @@ async function route(req, res, url, parts, json, user) {
   const introMedia = showcaseMedia(url.pathname, loadAny, ownerId());
   const load = (id) => { const j = loadAny(id); return j && (visibleTo(j, user) || (introMedia && j.id === parts[1])) ? j : null; };
   const allJobs = () => allJobsAny().filter((j) => visibleTo(j, user));
-  const signIn = (u) => { res.setHeader("Set-Cookie", `dv_session=${sessionToken(`${SECRET}:${u.hash}`, u.id)}; Path=/; Max-Age=${SESSION_HOURS * 3600}; HttpOnly; SameSite=Lax${secure(req) ? "; Secure" : ""}`); };
+  const signIn = (u) => { res.setHeader("Set-Cookie", `dv_session=${sessionToken(sessionKey(u), u.id)}; Path=/; Max-Age=${SESSION_HOURS * 3600}; HttpOnly; SameSite=Lax${secure(req) ? "; Secure" : ""}`); };
   if (req.method === "POST" && ["/api/login", "/api/signup", "/api/forgot", "/api/reset"].includes(url.pathname) && !accountLimit(visitor(req)))
     return json(429, { error: "Too many tries from your connection. Wait 15 minutes and try again" });
+  if (user && ["POST", "DELETE"].includes(req.method) && !actionLimit(user.id)) return json(429, { error: "Too many actions in a minute. Wait a moment and try again" });
   try {
     // The page is the built Vite app in web/dist (npm run build).
     if (req.method === "GET" && url.pathname === "/") return sendFile(res, path.join(P.ROOT, "web/dist/index.html"));
@@ -397,11 +414,23 @@ async function route(req, res, url, parts, json, user) {
       return json(200, { next: out.user.status === "approved" ? "/" : null });
     }
     if (req.method === "POST" && url.pathname === "/api/logout") {
+      if (user) users.endSessions(user.id); // signs this account out everywhere
       res.setHeader("Set-Cookie", "dv_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
       return json(200, { ok: true });
     }
+    // A temporary password from the owner must be changed before anything else.
+    if (user?.mustChange && parts[0] === "api" && !["/api/me", "/api/me/password", "/api/stats", "/api/showcase", "/api/logout"].includes(url.pathname))
+      return json(403, { error: "Change your temporary password first (Account)", mustChange: true });
+    // body: { current, password }. The new sign-in replaces the old one, which the new password ends.
+    if (req.method === "POST" && url.pathname === "/api/me/password") {
+      const { current, password } = await body(req);
+      const out = users.changePassword(user.id, current, password);
+      if (out.error) return json(400, { error: out.error });
+      signIn(out.user);
+      return json(200, { ok: true });
+    }
     // The signed-in account: who it is and which of its own keys are saved (never the keys themselves).
-    if (req.method === "GET" && url.pathname === "/api/me") return json(200, { ...users.pub(user), keyNames: KEY_NAMES });
+    if (req.method === "GET" && url.pathname === "/api/me") return json(200, { ...users.pub(user), keyNames: KEY_NAMES, voiceNames: VOICE_NAMES });
     // body: { GEMINI_API_KEY?, ... } — an account's own keys; the owner's live in .env.local
     if (req.method === "POST" && url.pathname === "/api/me/keys") {
       if (user.role === "owner") return json(409, { error: "The owner's keys are in .env.local" });
@@ -414,6 +443,11 @@ async function route(req, res, url, parts, json, user) {
       if (user.role !== "owner") return json(403, { error: "Only the owner manages accounts" });
       const problem = users.setStatus(parts[2], (await body(req)).status);
       return problem ? json(409, { error: problem }) : json(200, users.list());
+    }
+    if (req.method === "POST" && parts[0] === "api" && parts[1] === "users" && parts[3] === "password" && parts.length === 4) {
+      if (user.role !== "owner") return json(403, { error: "Only the owner manages accounts" });
+      const out = users.tempPassword(parts[2]);
+      return out.error ? json(409, { error: out.error }) : json(200, out);
     }
     if (req.method === "GET" && url.pathname === "/api/showcase") return json(200, showcase(allJobsAny(), ownerId()));
     // The intro's two public numbers, and whether this browser is signed in.
@@ -483,6 +517,7 @@ async function route(req, res, url, parts, json, user) {
       return json(201, D.startDesign(base, request.trim()));
     }
     if (req.method === "POST" && parts[0] === "api" && parts[1] === "templates" && parts[3] === "status") {
+      if (user.role !== "owner") return json(403, { error: "Only the owner approves or rejects looks" });
       const problem = D.setStatus(parts[2], (await body(req)).status);
       return problem ? json(409, { error: problem }) : json(200, D.listTemplates());
     }
@@ -506,7 +541,8 @@ async function route(req, res, url, parts, json, user) {
     if (req.method === "GET" && parts[0] === "media" && parts[1] === "bulletins" && visibleTo(loadBulletin((parts[2] ?? "").replace(/\.mp4$/, "")), user)) return sendFile(res, path.join(BULLETINS, parts[2]), req);
     if (req.method === "GET" && url.pathname === "/api/usage") {
       const all = allJobs();
-      return json(200, { voice: await voiceCredits(P.useKeys.getStore().keys.ELEVENLABS_API_KEY, user.role === "owner" ? null : new Set(all.map((j) => j.id))), month: P.monthSpend(all), rates: P.RATES });
+      return json(200, { voice: await voiceCredits(P.useKeys.getStore().keys.ELEVENLABS_API_KEY, user.role === "owner" ? null : new Set(all.map((j) => j.id))), month: P.monthSpend(all), rates: P.RATES,
+        ...(user.role === "owner" && { accounts: P.spendByAccount(all, user.id).map((a) => ({ ...a, email: users.find(a.id)?.email ?? "removed account" })) }) });
     }
     if (parts[0] !== "api" || parts[1] !== "jobs") return json(404, { error: "Not found" });
     if (req.method === "GET" && parts.length === 2) {
@@ -526,6 +562,8 @@ async function route(req, res, url, parts, json, user) {
       if (typeof brief !== "string" || brief.length > 500) return json(400, { error: "Brief is too long (500 characters max)." });
       const jobSource = source === undefined ? undefined : validSource(source);
       if (source !== undefined && !jobSource) return json(400, { error: "Unknown story source." });
+      const capped = overCap(allJobs(), user, { daily: Number(process.env.DAILY_STORIES) || 20, monthCap: Number(process.env.MONTHLY_CAP_INR) || 0, spent: user.role === "owner" ? P.monthSpend(allJobs()).total : 0 });
+      if (capped) return json(429, { error: capped });
       const job = { id: randomUUID(), createdBy: user.id, input: input.trim(), lang, format, presenter, ...(bothFormats && { bothFormats, ...(twinPresenter !== undefined && { twinPresenter }) }), brief: brief.trim(), createdAt: new Date().toISOString(), ...(group && { group }),
         ...(jobSource && { source: jobSource }) };
       run(job, ["script"], "script_review");
@@ -536,7 +574,7 @@ async function route(req, res, url, parts, json, user) {
     if (req.method === "GET" && parts.length === 3) {
       // The same story in its other languages (filed together, linked by group).
       const siblings = job.group ? allJobs().filter((o) => o.group === job.group && o.id !== job.id).map(({ id, lang, status, format }) => ({ id, lang, status, format: format ?? "landscape" })) : [];
-      return json(200, { ...job, back: P.backTargets(job), siblings, review: P.reviewReasons(job), timeline: P.timelineFor(job), ...(job.status === "script_review" && job.script && { scriptProblems: [...P.scriptProblems(P.dropUnused(job.script)), ...P.scriptMismatches(P.dropUnused(job.script), job.lang)] }) });
+      return json(200, { ...job, ...(job.status === "queued" && line.includes(job.id) && { ahead: line.indexOf(job.id) }), back: P.backTargets(job), siblings, review: P.reviewReasons(job), timeline: P.timelineFor(job), ...(job.status === "script_review" && job.script && { scriptProblems: [...P.scriptProblems(P.dropUnused(job.script)), ...P.scriptMismatches(P.dropUnused(job.script), job.lang)] }) });
     }
     // Photos can change while the script is under review; the cutaways are built when the draft is made.
     // English meaning of the script as it stands in the review form (not saved as the script).
@@ -593,7 +631,7 @@ async function route(req, res, url, parts, json, user) {
   } catch (e) {
     if (!e.status) console.error(e);
     if (res.headersSent) return res.destroy(); // a stream already started: a second writeHead would crash the server
-    json(e.status ?? 500, { error: e.message });
+    json(e.status ?? 500, e.status ? { error: e.message } : { error: "Something went wrong; try again" }); // the details (paths, tool output) stay in the log
   }
 }
 
@@ -643,4 +681,6 @@ for (const f of fs.readdirSync(BULLETINS).filter((f) => f.endsWith(".json"))) {
   if (["queued", "making"].includes(b.status)) saveBulletin({ ...b, status: "error", error: "Interrupted by a server restart; make it again" });
 }
 
+// .env.local holds the owner's keys: other users of this Mac shouldn't be able to read it.
+if (fs.existsSync(path.join(P.ROOT, ".env.local")) && fs.statSync(path.join(P.ROOT, ".env.local")).mode & 0o077) console.warn("Warning: .env.local can be read by other users of this Mac. Run: chmod 600 .env.local");
 server.listen(PORT, "127.0.0.1", () => console.log(`Dashavani Studio on http://localhost:${PORT}${P.MOCK ? "  (MOCK mode: no API calls)" : ""}`));

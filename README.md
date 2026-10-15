@@ -62,6 +62,8 @@ Then open **http://localhost:4000**. Stop the server with **Ctrl+C**. Both comma
 
 Put these in `.env.local`. Never commit or send this file. They are used only by the **owner account**.
 
+Keep it readable only by you: `chmod 600 .env.local` (the server warns at start if it isn't).
+
 **Accounts.** Every page except the intro needs an account. The first person to sign up (at `/signup`) becomes the owner; anyone after that waits until the owner approves them under **Account** in the top bar. Other accounts never use the owner's keys: each pastes its own Gemini, ElevenLabs and HeyGen keys under **Account** (stored encrypted in `data/users.json`), and only the owner can upload to YouTube. Forgot a password? **Forgot password?** on the sign-in page emails a one-time link (valid for an hour) to set a new one; the new password signs out every older sign-in. The email is sent from your own mail account: fill in the `SMTP_*` lines in `.env.local` (see `.env.example`; for Gmail, an App Password). Until then the link is printed in the server's terminal.
 
 | Key | Where to get it | Used for |
@@ -85,6 +87,15 @@ Money is spent only when you **approve the draft** (HeyGen) and, much less, when
 4. Share that address. The studio is online while this Mac is on and both commands run (`npm run online` keeps the Mac awake). Press Ctrl+C to take it offline.
 
 The quick-tunnel address changes every time you start it. For a fixed address on your own domain, use a named Cloudflare tunnel and set `PUBLIC_HOST=studio.example.com` and `PUBLIC_URL=https://studio.example.com` in `.env.local`. Online, sign-in cookies are HTTPS-only, sign-in/sign-up/reset are limited to 20 tries per 15 minutes per connection, and **Edit in Studio** works only for the owner on this Mac.
+
+## 4c. Backup and restore
+
+`data/` is the only copy of your accounts, stories and videos, and it isn't in git. `npm run backup` zips it to
+`../dashavani-backups/dashavani-data-<date>.zip`, readable only by you (it holds the accounts file and the server secret).
+
+To restore: stop the server, move the current `data/` aside, then `unzip ../dashavani-backups/<file>.zip` in this
+folder and `npm start`. Sign-ins and saved keys keep working because the zip includes `data/session-secret`
+(if you set `SESSION_SECRET` in `.env.local` instead, keep the same value).
 
 ## 5. Using it
 

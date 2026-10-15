@@ -68,7 +68,8 @@ export const LANGS = {
 // ELEVENLABS_VOICE_<CODE> picks a voice per language (e.g. ELEVENLABS_VOICE_TA); the default for the Indian languages
 // is Brian, whose multilingual voice eleven_v3 uses for all of them.
 // The owner's voices may live in their own ElevenLabs library, so other accounts get the built-in defaults.
-export const voiceFor = (lang) => (useKeys.getStore() && !useKeys.getStore().owner ? undefined : process.env[`ELEVENLABS_VOICE_${lang.toUpperCase()}`]) || (lang === "en" ? "onwK4e9ZLuTAKqWW03F9" : "nPczCjzI2devNBz1zQrb");
+// Other accounts may pick their own per language in the Account panel (saved with their keys).
+export const voiceFor = (lang) => (useKeys.getStore() && !useKeys.getStore().owner ? useKeys.getStore().keys?.[`ELEVENLABS_VOICE_${lang.toUpperCase()}`] : process.env[`ELEVENLABS_VOICE_${lang.toUpperCase()}`]) || (lang === "en" ? "onwK4e9ZLuTAKqWW03F9" : "nPczCjzI2devNBz1zQrb");
 
 const ScriptShape = z.object({
   template: z.enum(["lead", "breaking", "numbers", "points", "quote", "photo"]),
@@ -527,6 +528,10 @@ export function monthSpend(jobs, now = new Date()) {
   return out;
 }
 
+// The owner's view: this month's spend per account. Stories from before accounts are the owner's.
+export const spendByAccount = (jobs, ownerId, now = new Date()) =>
+  Object.entries(Object.groupBy(jobs, (j) => j.createdBy ?? ownerId)).map(([id, js]) => ({ id, ...monthSpend(js, now) })).filter((a) => a.stories);
+
 export async function voice(job) {
   const out = path.join(projectDir(job), "assets/voice.wav");
   fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -857,12 +862,16 @@ export const projectDir = (job) => path.join(DATA, "projects", job.id);
 // Story photos and clips live in the project's assets/photos and show as full-screen cutaways while the presenter speaks.
 export const PHOTO_TYPES = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 export const CLIP_TYPES = { "video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm" };
+// What each picture type's file starts with: the bytes decide, not the type the browser claims.
+const MAGIC = { "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff, "image/png": (b) => b.subarray(0, 8).equals(Buffer.from("\x89PNG\r\n\x1a\n", "latin1")),
+  "image/webp": (b) => b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP" };
 export const MAX_PHOTOS = 6, MAX_PHOTO_BYTES = 8 << 20, MAX_CLIP_BYTES = 100 << 20;
 export async function savePhoto(job, bytes, type, from) {
   const clip = Object.hasOwn(CLIP_TYPES, type);
   if (!PHOTO_TYPES[type] && !clip) throw new Error("Photos must be JPEG, PNG or WebP; clips MP4, MOV or WebM");
   if (bytes.length > (clip ? MAX_CLIP_BYTES : MAX_PHOTO_BYTES)) throw new Error(clip ? "Clip is larger than 100 MB" : "Photo is larger than 8 MB");
   if ((job.photos?.length ?? 0) >= MAX_PHOTOS) throw new Error(`A story can have at most ${MAX_PHOTOS} photos and clips`);
+  if (!clip && !MAGIC[type](bytes)) throw new Error(`That file is not a ${PHOTO_TYPES[type] === "jpg" ? "JPEG" : PHOTO_TYPES[type].toUpperCase()} picture`);
   const dir = path.join(projectDir(job), "assets/photos");
   fs.mkdirSync(dir, { recursive: true });
   const id = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
@@ -880,7 +889,10 @@ export async function savePhoto(job, bytes, type, from) {
     await sh("ffmpeg", ["-loglevel", "error", "-y", "-ss", "0.5", "-i", path.join(dir, `${id}.mp4`), "-frames:v", "1", "-q:v", "3", path.join(dir, `${id}.jpg`)]);
     const { stdout } = await sh("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path.join(dir, `${id}.mp4`)]);
     job.photos = [...(job.photos ?? []), { file: `${id}.mp4`, poster: `${id}.jpg`, kind: "clip", seconds: Math.round(Number(stdout) * 10) / 10, from }];
-  } catch { throw new Error("That clip could not be read; try an MP4"); }
+  } catch {
+    for (const f of [`${id}.mp4`, `${id}.jpg`]) fs.rmSync(path.join(dir, f), { force: true }); // ffmpeg may have started writing them
+    throw new Error("That clip could not be read; try an MP4");
+  }
   finally { fs.rmSync(src, { force: true }); }
 }
 

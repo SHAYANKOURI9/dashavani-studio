@@ -57,14 +57,14 @@ T12 translations (last: picks up all new text)
     visitors and editors. Editors' own videos are never on the intro.
   - Accept: test: an unmarked finished video and its poster are refused to a visitor and to an editor; a marked
     one plays on the intro; the intro with none marked shows the templates and no broken pictures.
-- [~] **T2: Usage per account** (editors see only their own: built; owner's per-account split: not yet) (`pipeline.mjs` `monthSpend`, `server.mjs`, `web/src/app.js`; S)
+- [x] **T2: Usage per account** (built 2026-10-15: owner sees a per-account line under the month total) (`pipeline.mjs` `monthSpend`, `server.mjs`, `web/src/app.js`; S)
   - Editors see their own month and their own ElevenLabs credits; owner sees the total plus a per-account split.
   - Accept: test: two accounts' costs add up separately; owner's total equals the sum.
-- [ ] **T3: Bulletins and template looks have owners** (`server.mjs`, `designer.mjs`; S)
+- [x] **T3: Bulletins and template looks have owners** (built 2026-10-15: bulletins already used only visible stories; approving/rejecting looks is now owner-only, 403 otherwise) (`server.mjs`, `designer.mjs`; S)
   - A bulletin may use only the maker's stories; editors see their own bulletins. Template looks: any account may
     design (with its own Gemini key); only the owner approves; approved looks are shared by all.
   - Accept: editor can't put another account's story in a bulletin (400); editor can't approve a look (403).
-- [ ] **T4: Change password, and owner reset** (`users.mjs`, `server.mjs`, `web/src/signin.js`, tests; S)
+- [x] **T4: Change password, and owner reset** (built 2026-10-15; until a temporary password is changed, every other /api call answers 403) (`users.mjs`, `server.mjs`, `web/src/signin.js`, tests; S)
   - Account panel: change password (current + new). Owner: "Reset password" gives a one-time temporary password,
     which must be changed at the next sign-in.
   - Accept: old password stops working; temporary password forces a change; editors can't reset others.
@@ -92,10 +92,10 @@ T12 translations (last: picks up all new text)
 - [ ] All of the above works over the public address; owner reviews.
 
 ### Phase 3: Nice to have
-- [ ] **T8: Place in the render queue** shown on a queued story ("2 stories ahead of yours") (`server.mjs`, `app.js`; S)
-- [ ] **T9: Editors pick their own voices** per language from their ElevenLabs library (`users.mjs`, `pipeline.mjs`, `signin.js`; S)
-- [ ] **T10: Re-render the 11 old videos** with the Dashavani logo (one-off, owner's queue, render time only; S)
-- [ ] **T11: `npm run backup`**: dated zip of `data/` (accounts, jobs, finals) outside the repo (S)
+- [x] **T8: Place in the render queue** (built 2026-10-15) shown on a queued story ("2 stories ahead of yours") (`server.mjs`, `app.js`; S)
+- [x] **T9: Editors pick their own voices** (built 2026-10-15 as a voice ID box per language in Account › Voices; no dropdown from the library yet) per language from their ElevenLabs library (`users.mjs`, `pipeline.mjs`, `signin.js`; S)
+- [x] **T10: Re-render the 11 old videos** (checked 2026-10-15: not needed. All 16 finished videos, including older versions, and the 4 drafts already show DASHA | VANI) with the Dashavani logo (one-off, owner's queue, render time only; S)
+- [x] **T11: `npm run backup`** (built 2026-10-15: zips to ../dashavani-backups/): dated zip of `data/` (accounts, jobs, finals) outside the repo (S)
 - [ ] **T12: Translations** of all interface text, including everything new above (`npm run i18n`; S)
   - Accept: the i18n test passes, so the full suite is green.
 

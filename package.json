@@ -12,6 +12,7 @@
     "i18n": "node --env-file-if-exists=.env.local i18n.mjs",
     "youtube:auth": "node --env-file-if-exists=.env.local youtube-auth.mjs",
     "postinstall": "npm --prefix web install --no-audit --no-fund",
+    "backup": "umask 077 && mkdir -p ../dashavani-backups && zip -qr ../dashavani-backups/dashavani-data-$(date +%Y-%m-%d-%H%M).zip data && ls -lh ../dashavani-backups | tail -1",
     "online": "caffeinate -i cloudflared tunnel --no-autoupdate --url http://localhost:${PORT:-4000}"
   },
   "keywords": [],

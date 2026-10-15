@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { z } from "zod";
 import { lintCss } from "./designer.mjs";
-import { unsupportedNumbers, backTargets, Script, fillVariables, templateFor, savePhoto, cutawayMarkup, slateMarkup, projectDir, toWords, captionLines, captionMarkup, addCost, monthSpend, sentences, translatedLines, subtitlePlan, cueFiles, gemini, reviewReasons, cutawaySchedule, PublishPack, downloadArgs } from "./pipeline.mjs";
+import { unsupportedNumbers, backTargets, Script, fillVariables, templateFor, savePhoto, cutawayMarkup, slateMarkup, projectDir, toWords, captionLines, captionMarkup, addCost, monthSpend, spendByAccount, sentences, translatedLines, subtitlePlan, cueFiles, gemini, reviewReasons, cutawaySchedule, PublishPack, downloadArgs } from "./pipeline.mjs";
 
 test("fills variables in both single-quoted and Studio-saved templates", () => {
   const single = `<html data-composition-variables='[{"id":"headline","default":"Old"}]'>`;
@@ -50,14 +50,21 @@ test("vertical stories use the Shorts layout whatever template the script picked
 
 test("photos: only images and clips, one copy each, at most six", async () => {
   const job = { id: `test-photos-${process.pid}` };
+  const jpg = (x) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from(x)]), png = (x) => Buffer.concat([Buffer.from("\x89PNG\r\n\x1a\n", "latin1"), Buffer.from(x)]);
   try {
     await assert.rejects(savePhoto(job, Buffer.from("x"), "text/html", "Uploaded"), /JPEG, PNG or WebP/);
-    await savePhoto(job, Buffer.from("a"), "image/jpeg", "PIB");
-    await savePhoto(job, Buffer.from("a"), "image/jpeg", "Uploaded"); // same picture again
-    assert.equal(job.photos.length, 1);
-    for (let i = 0; i < 5; i++) await savePhoto(job, Buffer.from(`b${i}`), "image/png", "Uploaded");
-    await assert.rejects(savePhoto(job, Buffer.from("c"), "image/png", "Uploaded"), /at most 6/);
-  } finally { fs.rmSync(projectDir(job), { recursive: true, force: true }); }
+    await assert.rejects(savePhoto(job, Buffer.from("<html><script>alert(1)</script>"), "image/jpeg", "Uploaded"), /not a JPEG/, "the bytes decide, not the label");
+    assert.equal(fs.existsSync(projectDir(job)) ? fs.readdirSync(`${projectDir(job)}/assets/photos`).length : 0, 0, "nothing left behind");
+    assert.equal(job.photos, undefined);
+    await savePhoto(job, Buffer.from("RIFF\0\0\0\0WEBPVP8 "), "image/webp", "Uploaded");
+    await savePhoto(job, jpg("a"), "image/jpeg", "PIB");
+    await savePhoto(job, jpg("a"), "image/jpeg", "Uploaded"); // same picture again
+    assert.equal(job.photos.length, 2);
+    for (let i = 0; i < 4; i++) await savePhoto(job, png(`b${i}`), "image/png", "Uploaded");
+    await assert.rejects(savePhoto(job, png("c"), "image/png", "Uploaded"), /at most 6/);
+    await assert.rejects(savePhoto({ id: `${job.id}-clip` }, Buffer.from("not a video"), "video/mp4", "Uploaded"), /could not be read/);
+    assert.equal(fs.readdirSync(`${projectDir({ id: `${job.id}-clip` })}/assets/photos`).length, 0, "a bad clip leaves no files");
+  } finally { for (const id of [job.id, `${job.id}-clip`]) fs.rmSync(projectDir({ id }), { recursive: true, force: true }); }
 });
 
 test("cutaways escape the headline and keep their script separate", () => {
@@ -324,4 +331,12 @@ test("fields wholly in another language are found for translating", async () => 
   const { foreignFields } = await import("./pipeline.mjs");
   assert.deepEqual(foreignFields({ ...base, headline: "మోదీ", quote_text: "नवरात्रि में आज", ticker: ["మోదీ", "देवी माता"] }, "te"), [["quote_text"], ["ticker", 1]]);
   assert.deepEqual(foreignFields({ ...base, headline: "మోదీ PIB" }, "te"), []);
+});
+
+test("the owner's spend split: each account's stories add up, old stories are the owner's", () => {
+  const c = (inr) => ({ script: { inr }, voice: { inr: 0 }, presenter: { inr: 0 } });
+  const jobs = [{ createdAt: "2026-10-02T00:00:00Z", cost: c(1) }, { createdBy: "o", createdAt: "2026-10-03T00:00:00Z", cost: c(2) }, { createdBy: "a", createdAt: "2026-10-04T00:00:00Z", cost: c(4) }, { createdBy: "b", createdAt: "2026-10-04T00:00:00Z" }];
+  const split = spendByAccount(jobs, "o", new Date("2026-10-20"));
+  assert.deepEqual(split.map((a) => [a.id, a.total]), [["o", 3], ["a", 4]], "an account with no paid story this month is left out");
+  assert.equal(split.reduce((n, a) => n + a.total, 0), monthSpend(jobs, new Date("2026-10-20")).total);
 });

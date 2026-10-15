@@ -24,7 +24,7 @@ function codeKeys() {
 // The server's own messages that reach the page as they are (no values built in).
 function serverKeys() {
   const out = [];
-  for (const f of ["server.mjs", "designer.mjs", "youtube.mjs"]) {
+  for (const f of ["server.mjs", "designer.mjs", "youtube.mjs", "users.mjs"]) {
     const src = fs.readFileSync(f, "utf8");
     for (const re of [/return "([^"\\]+)"/g, /error: "([^"\\]+)"/g, /new Error\("([^"\\$]+)"\)/g]) for (const m of src.matchAll(re)) out.push(m[1]);
   }

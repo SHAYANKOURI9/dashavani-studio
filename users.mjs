@@ -7,6 +7,9 @@ import path from "node:path";
 
 // What a non-owner must bring to make videos. The owner's come from .env.local.
 export const KEY_NAMES = ["GEMINI_API_KEY", "ELEVENLABS_API_KEY", "HEYGEN_API_KEY", "HEYGEN_AVATAR_ID"];
+// Optional: a voice from the account's own ElevenLabs library for each language (else the built-in defaults).
+export const VOICE_NAMES = ["en", "te", "hi", "ta", "kn", "ml", "mr", "bn", "gu", "or"].map((c) => `ELEVENLABS_VOICE_${c.toUpperCase()}`);
+const VOICE_ID = /^[A-Za-z0-9]{10,40}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LOCK_AFTER = 5, LOCK_MS = 15 * 60_000;
 const RESET_MS = 60 * 60_000, RESET_GAP_MS = 60_000; // a reset link lasts an hour; one email a minute per account
@@ -37,7 +40,9 @@ export function userStore(file, secret) {
   };
   const failures = new Map(); // email -> { n, until }; in memory, so a restart clears it
   // What the browser may see: never the hash or the keys themselves.
-  const pub = (u) => u && { id: u.id, email: u.email, role: u.role, status: u.status, createdAt: u.createdAt, keys: KEY_NAMES.filter((k) => u.keys && open(u.keys)[k]) };
+  const pub = (u) => u && { id: u.id, email: u.email, role: u.role, status: u.status, createdAt: u.createdAt, keys: [...KEY_NAMES, ...VOICE_NAMES].filter((k) => u.keys && open(u.keys)[k]), ...(u.mustChange && { mustChange: true }) };
+  const setPassword = (u, password) => { u.salt = randomBytes(16).toString("base64url"); u.hash = hash(password, u.salt); };
+  const matches = (u, password) => typeof password === "string" && timingSafeEqual(Buffer.from(hash(password, u.salt)), Buffer.from(u.hash));
 
   return {
     pub,
@@ -62,7 +67,7 @@ export function userStore(file, secret) {
       const f = failures.get(email);
       if (f?.until > now) return { error: "Too many wrong tries. Wait 15 minutes and try again" };
       const user = read().find((u) => u.email === email);
-      const ok = !!user && typeof password === "string" && timingSafeEqual(Buffer.from(hash(password, user.salt)), Buffer.from(user.hash));
+      const ok = !!user && matches(user, password);
       if (!ok) {
         const n = (f?.until > 0 ? 0 : f?.n ?? 0) + 1;
         failures.set(email, n >= LOCK_AFTER ? { n: 0, until: now + LOCK_MS } : { n });
@@ -88,12 +93,37 @@ export function userStore(file, secret) {
       if (badPassword(password)) return { error: badPassword(password) };
       const users = read(), u = typeof token === "string" && token ? users.find((x) => x.resetHash && x.resetExp > now && x.resetHash === sha(token)) : null;
       if (!u) return { error: "This reset link has expired or was already used. Ask for a new one" };
-      u.salt = randomBytes(16).toString("base64url");
-      u.hash = hash(password, u.salt);
-      delete u.resetHash; delete u.resetExp;
+      setPassword(u, password);
+      delete u.resetHash; delete u.resetExp; delete u.mustChange;
       write(users);
       failures.delete(u.email);
       return { user: u };
+    },
+    // From the account panel: needs the current password. Ends every other sign-in (the session key includes the hash).
+    changePassword(id, current, password) {
+      const users = read(), u = users.find((x) => x.id === id);
+      if (!u || !matches(u, current)) return { error: "Your current password is not right" };
+      if (badPassword(password)) return { error: badPassword(password) };
+      if (password === current) return { error: "Pick a new password, not the current one" };
+      setPassword(u, password);
+      delete u.mustChange;
+      write(users);
+      return { user: u };
+    },
+    // The owner resets someone's password: a one-time temporary password, which must be changed after signing in.
+    tempPassword(id) {
+      const users = read(), u = users.find((x) => x.id === id);
+      if (!u || u.role === "owner") return { error: "No such account" };
+      const password = randomBytes(9).toString("base64url");
+      setPassword(u, password);
+      u.mustChange = true;
+      write(users);
+      failures.delete(u.email);
+      return { password };
+    },
+    endSessions(id) {
+      const users = read(), u = users.find((x) => x.id === id);
+      if (u) { u.session = (u.session ?? 0) + 1; write(users); }
     },
     setStatus(id, status) {
       const users = read(), u = users.find((x) => x.id === id);
@@ -108,9 +138,10 @@ export function userStore(file, secret) {
       const users = read(), u = users.find((x) => x.id === id);
       if (!u) return "No such account";
       const now = u.keys ? open(u.keys) : {};
-      for (const k of KEY_NAMES) {
+      for (const k of [...KEY_NAMES, ...VOICE_NAMES]) {
         if (typeof keys?.[k] !== "string") continue;
         if (keys[k].length > 300) return `${k} is too long`;
+        if (VOICE_NAMES.includes(k) && keys[k].trim() && !VOICE_ID.test(keys[k].trim())) return "A voice ID is letters and numbers, as shown in ElevenLabs";
         if (keys[k].trim()) now[k] = keys[k].trim(); else delete now[k];
       }
       u.keys = seal(now);
