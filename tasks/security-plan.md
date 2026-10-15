@@ -1,8 +1,7 @@
 # Plan: the 20-point security check (2026-10-15)
 
-Status: built 2026-10-15 (approved: 20 stories a day, sign out everywhere, no monthly cap set); **do not commit** until the owner says so.
-`tasks/plan.md`, `tasks/todo.md` (v1, still unchecked) and `tasks/next-plan.md` are left as they are; this file is
-both plan and task list for this work.
+Status: built and committed 2026-10-15 (approved: 20 stories a day, sign out everywhere). Since then API keys live
+only on the server, so `MONTHLY_CAP_INR` counts the whole studio. This file is both plan and task list for this work.
 
 ## Overview
 Dashavani Studio was checked against a 20-point list for apps that go online. Most points already hold.
@@ -118,7 +117,7 @@ S10 backup restore (independent)
   - Accept: done once by hand, steps written down; the zip holds `users.json`, `session-secret`, `jobs/`, finals.
 
 ### Checkpoint 3
-- [ ] Full `npm test` green, build clean, audit table above all ✅ or n/a. Owner review. **No commit until asked.**
+- [x] Full `npm test` green, build clean, audit gaps fixed. Owner review; committed 2026-10-15.
 
 ## Risks and mitigations
 | Risk | Impact | Mitigation |

@@ -10,3 +10,11 @@ renders/
 .hyperframes/
 .thumbnails/
 snapshots/
+
+# AI tool files and session notes: kept on this Mac, not in the repo
+.agents/
+.claude/
+skills-lock.json
+.waveform-cache/
+story.md
+cloude.md

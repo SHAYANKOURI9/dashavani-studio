@@ -1,8 +1,7 @@
 # Plan: accounts complete, and the studio usable from any machine (2026-10-14)
 
-Status: plan, waiting for approval. Build after approval; **do not commit** until the owner says so.
-`tasks/plan.md` / `tasks/todo.md` (original v1 plan, 40 unchecked) and `tasks/login-plan.md` are left untouched;
-this file is the plan and task list for this work.
+Status: built 2026-10-14/15 and committed; only T7 (the phone walkthrough) is left, done by hand.
+This file is the plan and task list for this work.
 
 ## Goal
 Anyone, on any computer or phone, opens the studio's web address, signs up, waits for the owner's approval, and
@@ -70,7 +69,7 @@ T12 translations (last: picks up all new text)
   - Accept: old password stops working; temporary password forces a change; editors can't reset others.
 
 ### Checkpoint 1
-- [ ] `npm test` passes (except i18n until T12); build clean; two-account walkthrough on a test server
+- [x] `npm test` passes (except i18n until T12); build clean; two-account walkthrough on a test server
       (port 4100, with a **copy** of `data/`, never the live one).
 
 ### Phase 2: From any machine
@@ -96,11 +95,11 @@ T12 translations (last: picks up all new text)
 - [x] **T9: Editors pick their own voices** (built 2026-10-15 as a voice ID box per language in Account › Voices; no dropdown from the library yet) per language from their ElevenLabs library (`users.mjs`, `pipeline.mjs`, `signin.js`; S)
 - [x] **T10: Re-render the 11 old videos** (checked 2026-10-15: not needed. All 16 finished videos, including older versions, and the 4 drafts already show DASHA | VANI) with the Dashavani logo (one-off, owner's queue, render time only; S)
 - [x] **T11: `npm run backup`** (built 2026-10-15: zips to ../dashavani-backups/): dated zip of `data/` (accounts, jobs, finals) outside the repo (S)
-- [ ] **T12: Translations** of all interface text, including everything new above (`npm run i18n`; S)
+- [x] **T12: Translations** (done 2026-10-15; all ten languages, including sign-in errors) of all interface text, including everything new above (`npm run i18n`; S)
   - Accept: the i18n test passes, so the full suite is green.
 
 ### Checkpoint 3
-- [ ] Full `npm test` green, build clean, owner review. **No commit until the owner says so.**
+- [x] Full `npm test` green, build clean, owner review; committed 2026-10-15.
 
 ## Phase 4 (later, not in this build): always online without this Mac
 A Docker image (Node 22, ffmpeg, Chromium, the fonts) on a small cloud server with a volume for `data/`.
