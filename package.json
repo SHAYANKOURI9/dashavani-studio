@@ -17,7 +17,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "private": "true",
   "type": "module",
   "devDependencies": {
